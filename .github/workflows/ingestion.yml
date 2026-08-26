@@ -1,0 +1,116 @@
+name: Ingestion Pipeline Verification
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ingestion-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  COMPOSE_FILE: docker-compose.yml
+  KAFKA_BOOTSTRAP: localhost:9094
+  EVENT_COUNT: "60"
+  EVENT_SEED: "42"
+
+jobs:
+  ingestion-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Python deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Start Docker Compose stack (Kafka + mock services)
+        run: |
+          docker compose -f "$COMPOSE_FILE" up -d --build
+          docker compose -f "$COMPOSE_FILE" ps
+
+      - name: Wait for Kafka to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if test "$(docker inspect -f '{{.State.Health.Status}}' revtrace-kafka 2>/dev/null)" = healthy; then
+              echo "Kafka is ready."
+              exit 0
+            fi
+            echo "Attempt $i/30: Kafka not ready, sleeping 5s..."
+            sleep 5
+          done
+          echo "::error::Kafka did not become ready in time."
+          docker compose -f "$COMPOSE_FILE" logs kafka
+          exit 1
+
+      - name: Wait for topic initialization
+        run: |
+          for i in $(seq 1 20); do
+            init_status=$(docker inspect -f '{{.State.Status}}:{{.State.ExitCode}}' \
+              "$(docker compose -f "$COMPOSE_FILE" ps -aq kafka-init)" 2>/dev/null || true)
+            if test "$init_status" = "exited:0"; then
+              echo "Kafka topics initialized."
+              exit 0
+            fi
+            echo "Attempt $i/20: Kafka topics not initialized, sleeping 3s..."
+            sleep 3
+          done
+          echo "::error::Kafka topics did not initialize in time."
+          docker compose -f "$COMPOSE_FILE" logs
+          exit 1
+
+      # Fast, in-process contract check on the shared common.event module —
+      # independent of Kafka, catches contract regressions before we spend
+      # time on the full ingestion round-trip below.
+      - name: Run smoke test (contract sanity check)
+        run: python smoke_test.py
+
+      - name: Generate deterministic test events
+        run: |
+          python scripts/generate_events.py \
+            --count "$EVENT_COUNT" \
+            --seed "$EVENT_SEED" \
+            --bootstrap-server "$KAFKA_BOOTSTRAP" \
+            --output events_sent.json
+
+      - name: Verify events (schema, topic, key, partition affinity)
+        run: |
+          python scripts/verify_events.py \
+            --sent-events events_sent.json \
+            --bootstrap-server "$KAFKA_BOOTSTRAP" \
+            --report verification_report.json
+
+      - name: Upload verification artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingestion-verification-report
+          path: |
+            verification_report.json
+            events_sent.json
+          retention-days: 14
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: docker compose -f "$COMPOSE_FILE" logs --no-color > compose_logs.txt || true
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: compose-logs
+          path: compose_logs.txt
+
+      - name: Tear down stack
+        if: always()
+        run: docker compose -f "$COMPOSE_FILE" down -v

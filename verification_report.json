@@ -1,0 +1,14 @@
+{
+  "sent_count": 60,
+  "consumed_count": 60,
+  "distinct_transaction_ids": 20,
+  "topics_checked": [
+    "authorization.events",
+    "capture.events",
+    "checkout.events",
+    "payment.events",
+    "settlement.events"
+  ],
+  "failures": [],
+  "passed": true
+}
