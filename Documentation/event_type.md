@@ -1,0 +1,15 @@
+checkout_started
+checkout_completed
+checkout_failed
+payment_created
+payment_succeeded
+payment_failed
+authorization_requested
+authorization_succeeded
+authorization_failed
+capture_requested
+capture_succeeded
+capture_failed
+settlement_initiated
+settlement_succeeded
+settlement_failed
