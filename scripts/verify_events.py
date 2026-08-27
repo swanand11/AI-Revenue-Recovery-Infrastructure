@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -90,7 +91,12 @@ def validate_contract(event: dict) -> list[str]:
     return errs
 
 
-def consume_all(bootstrap_server: str, topics: list[str], expected_count: int, timeout_ms: int = 30000):
+def consume_sent_events(
+    bootstrap_server: str,
+    topics: list[str],
+    sent_ids: set[str],
+    timeout_ms: int = 60000,
+):
     consumer = KafkaConsumer(
         *topics,
         bootstrap_servers=bootstrap_server,
@@ -100,13 +106,16 @@ def consume_all(bootstrap_server: str, topics: list[str], expected_count: int, t
         value_deserializer=lambda v: json.loads(v.decode("utf-8")),
         key_deserializer=lambda k: k.decode("utf-8") if k else None,
     )
-    messages = []
-    for msg in consumer:
-        messages.append(msg)
-        if len(messages) >= expected_count:
-            break
+    messages = {}
+    deadline = time.time() + timeout_ms / 1000
+    while len(messages) < len(sent_ids) and time.time() < deadline:
+        for msg in consumer.poll(timeout_ms=1000).values():
+            for record in msg:
+                event_id = record.value.get("event_id")
+                if event_id in sent_ids:
+                    messages[event_id] = record
     consumer.close()
-    return messages
+    return list(messages.values())
 
 
 def main() -> None:
@@ -118,8 +127,9 @@ def main() -> None:
 
     sent_events = json.loads(Path(args.sent_events).read_text())
     expected_topics = sorted({resolve_topic(e["stage"]) for e in sent_events})
+    sent_ids = {e["event_id"] for e in sent_events}
 
-    consumed = consume_all(args.bootstrap_server, expected_topics, expected_count=len(sent_events))
+    consumed = consume_sent_events(args.bootstrap_server, expected_topics, sent_ids)
 
     failures: list[str] = []
 
@@ -154,7 +164,6 @@ def main() -> None:
         # 4. Partition affinity per (transaction_id, topic)
         by_txn_topic_partitions[(txn_id, msg.topic)].add(msg.partition)
 
-    sent_ids = {e["event_id"] for e in sent_events}
     missing = sent_ids - consumed_ids
     for event_id in sorted(missing):
         failures.append(f"[delivery] event {event_id} was sent but never consumed")

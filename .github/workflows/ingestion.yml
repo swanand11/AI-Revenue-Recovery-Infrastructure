@@ -75,6 +75,13 @@ jobs:
       - name: Run smoke test (contract sanity check)
         run: python smoke_test.py
 
+      - name: Verify mock-service WAL
+        run: |
+          wal_lines=$(docker compose -f "$COMPOSE_FILE" exec -T payment-service \
+            sh -lc 'wc -l < /app/wal/events.jsonl')
+          test "$wal_lines" -gt 0
+          echo "WAL contains $wal_lines event(s)."
+
       - name: Generate deterministic test events
         run: |
           python scripts/generate_events.py \
