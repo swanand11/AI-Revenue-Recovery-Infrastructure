@@ -118,6 +118,20 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  dummy-consumer:
+    build:
+      context: .
+      dockerfile: ./consumers/Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WAL_PATH: /app/wal/events.jsonl
+    volumes:
+      - wal_data:/app/wal
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   kafka_data:
   wal_data:
