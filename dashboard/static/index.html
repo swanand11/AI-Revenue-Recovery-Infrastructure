@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RevTrace Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">RevTrace live observability</p>
+        <h1>Trace ingestion to detection in real time.</h1>
+        <p class="lede">Search the live Splunk index, inspect propagation for a transaction, and drill into the raw event payloads.</p>
+      </div>
+      <div class="status-card">
+        <div class="status-label">Live stream</div>
+        <div id="last-refresh" class="status-value">Waiting for data...</div>
+      </div>
+    </section>
+
+    <section class="panel grid">
+      <div class="card">
+        <h2>Smart Query</h2>
+        <div class="form">
+          <input id="transaction_id" placeholder="transaction_id" />
+          <input id="customer_id" placeholder="customer_id" />
+          <input id="stage" placeholder="stage" />
+          <input id="status" placeholder="status" />
+          <input id="event_type" placeholder="event_type" />
+          <input id="failure_code" placeholder="failure_code" />
+          <button id="search-btn">Search Splunk</button>
+        </div>
+        <div id="search-results" class="results"></div>
+      </div>
+
+      <div class="card">
+        <h2>Traceability</h2>
+        <p class="subtle">Choose a transaction and inspect the full chain from ingestion to detection.</p>
+        <input id="trace-txn" placeholder="transaction_id for trace view" />
+        <button id="trace-btn">Load Trace</button>
+        <div id="trace-results" class="trace"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="card">
+        <h2>Core Event Details</h2>
+        <pre id="detail-view" class="detail">Select an event to inspect its full JSON payload.</pre>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="card">
+        <h2>Live Summary</h2>
+        <div id="stats" class="stats"></div>
+      </div>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

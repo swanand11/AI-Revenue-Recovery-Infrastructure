@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+  --bg: #081018;
+  --panel: #101b27;
+  --panel-2: #162433;
+  --text: #e8f1ff;
+  --muted: #8ba2bd;
+  --accent: #62d2a2;
+  --accent-2: #7cb7ff;
+  --border: rgba(255,255,255,0.08);
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  background: radial-gradient(circle at top, #14314a 0, var(--bg) 45%);
+  color: var(--text);
+}
+.shell { max-width: 1280px; margin: 0 auto; padding: 32px; }
+.hero, .grid { display: grid; gap: 20px; }
+.hero { grid-template-columns: 2fr 1fr; align-items: end; margin-bottom: 24px; }
+h1, h2 { margin: 0 0 10px; }
+h1 { font-size: clamp(2rem, 4vw, 4rem); line-height: 0.95; }
+.lede, .subtle { color: var(--muted); max-width: 70ch; }
+.eyebrow { text-transform: uppercase; letter-spacing: .2em; color: var(--accent); font-size: .75rem; }
+.status-card, .card { background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01)); border: 1px solid var(--border); border-radius: 18px; padding: 18px; backdrop-filter: blur(14px); }
+.status-label { color: var(--muted); font-size: .9rem; }
+.status-value { font-size: 1.2rem; margin-top: 8px; }
+.panel { margin-top: 20px; }
+.grid { grid-template-columns: 1.2fr 1fr; }
+.form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0 18px; }
+input, button {
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #0a1320;
+  color: var(--text);
+  padding: 12px 14px;
+}
+button { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #04111d; font-weight: 700; cursor: pointer; }
+.results, .trace, .stats { display: grid; gap: 10px; }
+.event, .metric { padding: 12px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 14px; cursor: pointer; }
+.event:hover { border-color: rgba(98,210,162,0.5); }
+.pill { display: inline-block; margin-right: 8px; padding: 3px 8px; border-radius: 999px; background: rgba(124,183,255,0.15); color: var(--accent-2); }
+pre { white-space: pre-wrap; word-break: break-word; margin: 0; }
+@media (max-width: 900px) { .hero, .grid { grid-template-columns: 1fr; } .form { grid-template-columns: 1fr; } .shell { padding: 18px; } }

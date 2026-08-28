@@ -42,6 +42,7 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic authorization.events --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic capture.events --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic settlement.events --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic detection.events --partitions 3 --replication-factor 1
 
   checkout-service:
     build:
@@ -132,6 +133,92 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  detection-service:
+    build:
+      context: .
+      dockerfile: ./detection/Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPLUNK_HEC_URL: https://splunk:8088
+      SPLUNK_HEC_VERIFY_CERT: "false"
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN:-revtrace-hec-token}
+      SPLUNK_INDEX: revtrace
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  splunk:
+    image: splunk/splunk:latest
+    container_name: revtrace-splunk
+    ports:
+      - "8000:8000"
+      - "8088:8088"
+      - "8089:8089"
+    environment:
+      SPLUNK_START_ARGS: --accept-license
+      SPLUNK_GENERAL_TERMS: --accept-sgt-current-at-splunk-com
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD:-Changeme123!}
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN:-revtrace-hec-token}
+      SPLUNK_HEC_ENABLE: "1"
+      SPLUNK_HEC_PORT: "8088"
+    volumes:
+      - splunk_etc:/opt/splunk/etc
+      - splunk_var:/opt/splunk/var
+    healthcheck:
+      test: ["CMD-SHELL", "curl -kfsS https://localhost:8089/services/server/info -u admin:${SPLUNK_PASSWORD:-Changeme123!} >/dev/null 2>&1"]
+      interval: 20s
+      timeout: 10s
+      retries: 30
+      start_period: 60s
+
+  splunk-seed:
+    build:
+      context: .
+      dockerfile: ./detection/Dockerfile
+    depends_on:
+      splunk:
+        condition: service_healthy
+    environment:
+      SPLUNK_HEC_URL: https://splunk:8088
+      SPLUNK_HEC_VERIFY_CERT: "false"
+      SPLUNK_HEC_TOKEN: ${SPLUNK_HEC_TOKEN:-revtrace-hec-token}
+      SPLUNK_INDEX: revtrace
+    entrypoint: ["/bin/sh", "-lc"]
+    command: >
+      python -u scripts/mock_splunk_seed.py
+      --hec-url "$SPLUNK_HEC_URL"
+      --hec-token "$SPLUNK_HEC_TOKEN"
+      --index "$SPLUNK_INDEX"
+      --dataset /app/events_sent.json
+      --no-verify-cert
+    volumes:
+      - .:/app
+    restart: "no"
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: ./dashboard/Dockerfile
+    environment:
+      DASHBOARD_HOST: 0.0.0.0
+      DASHBOARD_PORT: 8080
+      SPLUNK_REST_URL: https://splunk:8089
+      SPLUNK_VERIFY_TLS: "false"
+      SPLUNK_USERNAME: admin
+      SPLUNK_PASSWORD: ${SPLUNK_PASSWORD:-Changeme123!}
+      SPLUNK_INDEX: revtrace
+    ports:
+      - "8080:8080"
+    depends_on:
+      splunk:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
 volumes:
   kafka_data:
   wal_data:
+  splunk_etc:
+  splunk_var:
