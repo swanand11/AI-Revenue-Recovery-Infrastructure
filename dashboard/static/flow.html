@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RevTrace Event Flow</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">Live event processing</p>
+        <h1>Watch the newest events move through the pipeline.</h1>
+        <p class="lede">This page reads the live Splunk index and shows the most recent ingestion and detection events as they arrive.</p>
+      </div>
+      <div class="status-card">
+        <div class="status-label">Live status</div>
+        <div id="flow-count" class="status-value">Loading...</div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="card">
+        <h2>Recent Events</h2>
+        <div id="flow-items" class="flow"></div>
+      </div>
+    </section>
+  </main>
+  <script src="/flow.js"></script>
+</body>
+</html>

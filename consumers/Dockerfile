@@ -5,6 +5,8 @@ WORKDIR /app
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+COPY common ./common
+COPY detection ./detection
 COPY consumers ./consumers
 
 CMD ["python", "-u", "consumers/main.py"]

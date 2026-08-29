@@ -2,69 +2,48 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 from kafka import KafkaConsumer
 
-TOPICS = [
-    "checkout.events",
-    "payment.events",
-    "authorization.events",
-    "capture.events",
-    "settlement.events",
-]
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from detection.publisher.splunk import SplunkHeCAdapter, default_verify_cert_for_url, parse_bool
 
-def load_wal_events(wal_path: Path) -> dict[str, dict]:
-    if not wal_path.exists():
-        return {}
-
-    events = {}
-    with wal_path.open("r", encoding="utf-8") as handle:
-        for line in handle:
-            if line.strip():
-                event = json.loads(line)
-                events[event["event_id"]] = event
-    return events
+TOPIC = "detection.events"
 
 
 def main() -> None:
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-    wal_path = Path(os.environ.get("WAL_PATH", "/app/wal/events.jsonl"))
+    hec_url = os.environ.get("SPLUNK_HEC_URL", "https://splunk:8088")
+    hec_token = os.environ.get("SPLUNK_HEC_TOKEN", "revtrace-hec-token")
+    index = os.environ.get("SPLUNK_INDEX", "revtrace")
+    verify_cert = parse_bool(
+        os.environ.get("SPLUNK_HEC_VERIFY_CERT"),
+        default=default_verify_cert_for_url(hec_url),
+    )
+
     consumer = KafkaConsumer(
-        *TOPICS,
+        TOPIC,
         bootstrap_servers=bootstrap_servers.split(","),
-        group_id="dummy-consumer",
+        group_id="splunk-forwarder",
         auto_offset_reset="earliest",
         enable_auto_commit=True,
         value_deserializer=lambda value: json.loads(value.decode("utf-8")),
         key_deserializer=lambda key: key.decode("utf-8") if key else None,
         api_version=(3, 9, 0),
     )
+    splunk = SplunkHeCAdapter(hec_url, hec_token, index=index, verify_cert=verify_cert)
 
-    print(f"Dummy consumer listening to: {', '.join(TOPICS)}", flush=True)
+    print(f"Splunk forwarder listening on {TOPIC}", flush=True)
     for message in consumer:
-        event = message.value
-        wal_event = load_wal_events(wal_path).get(event.get("event_id"))
+        splunk.emit(message.value)
         print(
-            f"CONSUMED topic={message.topic} partition={message.partition} "
-            f"key={message.key} event_id={event.get('event_id')} "
-            f"event_type={event.get('event_type')} "
-            f"transaction_id={event.get('transaction_id')}",
+            f"FORWARDED topic={message.topic} key={message.key} "
+            f"event_id={message.value.get('event_id')} transaction_id={message.value.get('transaction_id')}",
             flush=True,
         )
-        if wal_event is None:
-            print(
-                f"WAL NOT FOUND event_id={event.get('event_id')} "
-                f"path={wal_path}",
-                flush=True,
-            )
-        else:
-            print(
-                f"WAL MATCH event_id={wal_event['event_id']} "
-                f"topic={message.topic} event={json.dumps(wal_event, sort_keys=True)}",
-                flush=True,
-            )
 
 
 if __name__ == "__main__":

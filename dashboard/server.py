@@ -11,6 +11,18 @@ from dashboard.splunk_client import SplunkClient, SplunkConfig
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
+FAVICON_BYTES = b"""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
+<defs>
+<linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+<stop offset='0%' stop-color='#62d2a2'/>
+<stop offset='100%' stop-color='#7cb7ff'/>
+</linearGradient>
+</defs>
+<rect width='64' height='64' rx='16' fill='#081018'/>
+<path d='M14 40c10-22 26-22 36 0' fill='none' stroke='url(#g)' stroke-width='6' stroke-linecap='round'/>
+<circle cx='22' cy='24' r='4' fill='#e8f1ff'/>
+<circle cx='42' cy='24' r='4' fill='#e8f1ff'/>
+</svg>"""
 
 
 def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
@@ -49,11 +61,26 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path in {"", "/"}:
                 text_response(self, (STATIC_DIR / "index.html").read_bytes())
                 return
+            if parsed.path == "/flow":
+                text_response(self, (STATIC_DIR / "flow.html").read_bytes())
+                return
+            if parsed.path == "/lifecycle":
+                text_response(self, (STATIC_DIR / "lifecycle.html").read_bytes())
+                return
             if parsed.path == "/app.js":
                 text_response(self, (STATIC_DIR / "app.js").read_bytes(), "application/javascript; charset=utf-8")
                 return
+            if parsed.path == "/flow.js":
+                text_response(self, (STATIC_DIR / "flow.js").read_bytes(), "application/javascript; charset=utf-8")
+                return
+            if parsed.path == "/lifecycle.js":
+                text_response(self, (STATIC_DIR / "lifecycle.js").read_bytes(), "application/javascript; charset=utf-8")
+                return
             if parsed.path == "/styles.css":
                 text_response(self, (STATIC_DIR / "styles.css").read_bytes(), "text/css; charset=utf-8")
+                return
+            if parsed.path == "/favicon.ico":
+                text_response(self, FAVICON_BYTES, "image/svg+xml")
                 return
             if parsed.path == "/api/trace":
                 txn = parse_qs(parsed.query).get("transaction_id", [""])[0]
@@ -64,6 +91,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return json_response(self, {"items": self.splunk.smart_search(filters)})
             if parsed.path == "/api/stats":
                 return json_response(self, self.splunk.stats())
+            if parsed.path == "/api/recent":
+                return json_response(self, {"items": self.splunk.recent_events(50)})
+            if parsed.path == "/api/flow":
+                return json_response(self, {"items": self.splunk.recent_events(50)})
+            if parsed.path == "/api/lifecycle":
+                return json_response(self, {"items": self.splunk.recent_events(50)})
             json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # pragma: no cover - runtime integration
             json_response(self, {"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -82,4 +115,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

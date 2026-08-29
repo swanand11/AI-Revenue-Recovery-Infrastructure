@@ -66,6 +66,11 @@ def main() -> None:
             for event in generate_transaction_events():
                 wal.write_event(event)
                 publisher.publish(TOPIC, event)
+                print(
+                    f"[checkout-service] sent event_id={event['event_id']} "
+                    f"transaction_id={event['transaction_id']} event_type={event['event_type']}",
+                    flush=True,
+                )
             time.sleep(5)
     finally:
         publisher.close()

@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
 from kafka import KafkaConsumer
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from common.event import VALID_EVENT_TYPES, VALID_FAILURE_CODES, VALID_STATUSES
 from detection.detectors.degradation import detect_degradation
@@ -13,12 +17,6 @@ from detection.detectors.intent import update_customer_intent
 from detection.event_builder import build_detection_event
 from detection.models.catalog import INTENT_MODEL_VERSION, MODEL_VERSION
 from detection.publisher.kafka import DetectionKafkaPublisher
-from detection.publisher.splunk import (
-    NullSplunkAdapter,
-    SplunkHeCAdapter,
-    default_verify_cert_for_url,
-    parse_bool,
-)
 from detection.rca.network import RCAEngine
 from detection.state.customer_intent import CustomerIntentStore
 from detection.state.degradation import DegradationStore
@@ -76,11 +74,7 @@ def parse_timestamp(timestamp: str) -> float:
 
 def main() -> None:
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
-    splunk_hec_url = os.environ.get("SPLUNK_HEC_URL", "")
-    splunk_hec_token = os.environ.get("SPLUNK_HEC_TOKEN", "")
-    splunk_index = os.environ.get("SPLUNK_INDEX", "main")
-    splunk_hec_verify_cert = os.environ.get("SPLUNK_HEC_VERIFY_CERT")
-    splunk_hec_verify_cert = parse_bool(splunk_hec_verify_cert, default=default_verify_cert_for_url(splunk_hec_url)) if splunk_hec_url else True
+    print(f"[detection-service] connecting to Kafka at {bootstrap_servers}", flush=True)
     consumer = KafkaConsumer(
         *TOPICS,
         bootstrap_servers=bootstrap_servers.split(","),
@@ -92,17 +86,33 @@ def main() -> None:
         api_version=(3, 9, 0),
     )
     publisher = DetectionKafkaPublisher(bootstrap_servers=bootstrap_servers)
-    splunk = SplunkHeCAdapter(splunk_hec_url, splunk_hec_token, index=splunk_index, verify_cert=splunk_hec_verify_cert) if splunk_hec_url and splunk_hec_token else NullSplunkAdapter()
     rca = RCAEngine()
     intent_store = CustomerIntentStore()
     degradation_store = DegradationStore()
+    print(f"[detection-service] consuming topics: {', '.join(TOPICS)}", flush=True)
 
     for message in consumer:
+        event = message.value
+        print(
+            f"[detection-service] consumed topic={message.topic} key={message.key} "
+            f"event_id={event.get('event_id')} transaction_id={event.get('transaction_id')} "
+            f"event_type={event.get('event_type')} status={event.get('status')}",
+            flush=True,
+        )
         detection_event = process_event(message.value, rca, intent_store, degradation_store)
         if detection_event is None:
+            print(
+                f"[detection-service] skipped event_id={event.get('event_id')} "
+                f"no anomaly detected",
+                flush=True,
+            )
             continue
         publisher.publish(detection_event)
-        splunk.emit(detection_event)
+        print(
+            f"[detection-service] published detection event_id={detection_event.get('event_id')} "
+            f"transaction_id={detection_event.get('transaction_id')}",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

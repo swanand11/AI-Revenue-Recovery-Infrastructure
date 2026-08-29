@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RevTrace Lifecycle</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <div>
+        <p class="eyebrow">End-to-end lifecycle</p>
+        <h1>See whether ingestion reached detection.</h1>
+        <p class="lede">This page checks the live Splunk index for the transaction lifecycle and marks each stage as seen or missing.</p>
+      </div>
+      <div class="status-card">
+        <div class="status-label">Lifecycle check</div>
+        <div id="lifecycle-state" class="status-value">Waiting...</div>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="card">
+        <h2>Transaction Lookup</h2>
+        <div class="form single">
+          <input id="txn" placeholder="transaction_id" />
+          <button id="load-lifecycle">Load lifecycle</button>
+        </div>
+        <div id="lifecycle-items" class="flow"></div>
+      </div>
+    </section>
+  </main>
+  <script src="/lifecycle.js"></script>
+</body>
+</html>

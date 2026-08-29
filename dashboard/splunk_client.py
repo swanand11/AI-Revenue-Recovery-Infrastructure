@@ -84,6 +84,20 @@ class SplunkClient:
         rows = self.export_search(query, earliest_time="-30d")
         return {"rows": rows}
 
+    def recent_events(self, limit: int = 50) -> list[dict[str, Any]]:
+        query = (
+            f"search index={self.config.index} OR index=* OR sourcetype=\"revtrace:detection\" OR sourcetype=\"revtrace:mock-flow\" "
+            f"| sort 0 -_time | head {limit}"
+        )
+        return self.export_search(query, earliest_time="-30d")
+
+    def flow_events(self, transaction_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+        query = f"search index={self.config.index} OR index=* OR sourcetype=\"revtrace:detection\" OR sourcetype=\"revtrace:mock-flow\""
+        if transaction_id:
+            query += f' transaction_id="{transaction_id}"'
+        query += f" | sort 0 _time | head {limit}"
+        return self.export_search(query, earliest_time="-30d")
+
 
 def build_trace_query(index: str, transaction_id: str) -> str:
     return (
@@ -99,3 +113,10 @@ def build_smart_query(index: str, filters: dict[str, str]) -> str:
         if value:
             parts.append(f'{key}="{value}"')
     return "search " + " ".join(parts) + " | sort 0 -_time | head 200"
+
+
+def build_lifecycle_query(index: str, transaction_id: str) -> str:
+    return (
+        f'search index={index} transaction_id="{transaction_id}" '
+        "| sort 0 _time"
+    )

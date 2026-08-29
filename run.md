@@ -73,19 +73,83 @@ http://localhost:8080
 - core details of an event
 - smart search filters
 - live summary stats
+- the last 50 records from the live Splunk index
+- a dedicated mock event flow page
 
-## Seed Splunk with real data
+## Recommended launch flow
 
-The repository includes a real loader that posts JSON events into Splunk HEC.
-
-Run it manually if you want to reseed:
+The mock services already emit fresh events every 5 seconds, so the normal validation path is to start the stack and watch Splunk ingest those live events.
 
 ```bash
-./.venv/bin/python scripts/mock_splunk_seed.py \
+./.venv/bin/python runner/e2e_runner.py --build
+```
+
+That command starts:
+
+- the mock ingestion services
+- Kafka and the topic bootstrap flow
+- detection
+- the Kafka-to-Splunk forwarder
+- Splunk
+- the dashboard
+
+You should see terminal debug output confirming the launcher started the mock services, and then the dashboard should reflect the new records as Splunk ingests them.
+
+## Step-by-step debug flow
+
+Use these commands to isolate where data stops moving:
+
+1. Start only the mock ingestion services and watch their terminal logs:
+
+```bash
+./.venv/bin/python runner/start_mocks.py --build
+```
+
+2. Start Kafka and the detection consumer:
+
+```bash
+./.venv/bin/python runner/start_detection.py --build
+```
+
+3. Start Splunk and the Kafka-to-Splunk forwarder:
+
+```bash
+./.venv/bin/python runner/start_splunk_forwarder.py --build
+```
+
+4. Start the dashboard last:
+
+```bash
+./.venv/bin/python runner/start_dashboard.py --build
+```
+
+If the dashboard is still empty after step 4, the most likely leak points are:
+
+- Kafka topic creation
+- detection not publishing to `detection.events`
+- the forwarder not consuming `detection.events`
+- Splunk HEC not accepting writes
+
+## Reset and reseed Splunk
+
+If you want to refresh the demo index, clear the live Splunk index and then replay the bundled mock data into Splunk HEC.
+
+```bash
+./.venv/bin/python runner/reseed_live_splunk.py \
+  --index revtrace \
+  --hec-url https://localhost:8088 \
+  --hec-token revtrace-hec-token \
+  --splunk-password Changeme123! \
+  --no-verify-cert
+```
+
+To seed only one mock transaction flow:
+
+```bash
+./.venv/bin/python runner/simulate_case.py \
   --hec-url https://localhost:8088 \
   --hec-token revtrace-hec-token \
   --index revtrace \
-  --dataset events_sent.json \
   --no-verify-cert
 ```
 
@@ -182,6 +246,6 @@ docker compose up dashboard
 3. Detection consumes it.
 4. Detection computes signals and RCA.
 5. Detection publishes to `detection.events`.
-6. Detection emits the same event to Splunk.
-7. The dashboard queries Splunk and displays both traceability and details.
-
+6. Detection publishes the same event to `detection.events`.
+7. The Splunk forwarder consumes `detection.events` and writes to Splunk HEC.
+8. The dashboard queries Splunk and displays both traceability and details.

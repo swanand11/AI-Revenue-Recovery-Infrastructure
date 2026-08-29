@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import ssl
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -98,13 +99,19 @@ class SplunkHeCAdapter:
             method="POST",
         )
         ssl_context = build_ssl_context(self.verify_cert, ca_cert_path=self.ca_cert_path)
-        try:
-            with urllib.request.urlopen(request, timeout=10, context=ssl_context) as response:
-                response.read()
-        except ssl.SSLError as exc:  # pragma: no cover - external I/O
-            raise RuntimeError(f"Splunk HEC TLS certificate verification failed for {self.hec_url}: {exc}") from exc
-        except urllib.error.HTTPError as exc:  # pragma: no cover - external I/O
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"Splunk HEC rejected the event with HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:  # pragma: no cover - external I/O
-            raise RuntimeError(f"Failed to connect to Splunk HEC at {self.hec_url}: {exc.reason}") from exc
+        last_error: Exception | None = None
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(request, timeout=10, context=ssl_context) as response:
+                    response.read()
+                return
+            except ssl.SSLError as exc:  # pragma: no cover - external I/O
+                raise RuntimeError(f"Splunk HEC TLS certificate verification failed for {self.hec_url}: {exc}") from exc
+            except urllib.error.HTTPError as exc:  # pragma: no cover - external I/O
+                detail = exc.read().decode("utf-8", errors="replace")
+                raise RuntimeError(f"Splunk HEC rejected the event with HTTP {exc.code}: {detail}") from exc
+            except urllib.error.URLError as exc:  # pragma: no cover - external I/O
+                last_error = exc
+                time.sleep(2 * (attempt + 1))
+        assert last_error is not None
+        raise RuntimeError(f"Failed to connect to Splunk HEC at {self.hec_url}: {last_error.reason}") from last_error
