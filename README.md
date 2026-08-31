@@ -2,6 +2,16 @@
 
 ## Detection Layer
 
+The detection layer consumes the existing ingestion topics, and the system follows a fixed payment-gateway lifecycle:
+
+- `checkout`
+- `payment`
+- `auth`
+- `capture`
+- `settlement`
+
+Internally, the code still uses the existing service/topic names, but every mock, detector, and dashboard view must stay faithful to that lifecycle order.
+
 The detection layer consumes the existing ingestion topics:
 
 - `checkout.events`
@@ -20,6 +30,7 @@ It preserves the original Kafka keying convention (`transaction_id`), calculates
 - `detection.events` is created in Kafka alongside the ingestion topics.
 - `splunk` runs locally in Docker with persisted `/opt/splunk/etc` and `/opt/splunk/var` volumes.
 - `splunk-seed` loads the bundled synthetic dataset into Splunk through HEC.
+- `ingestion-bridge` snapshots Kafka ingestion topics into a shared local store so the dashboard can render live ingestion tables without pretending the data already lives in Splunk.
 
 ### Historical data and model artifacts
 

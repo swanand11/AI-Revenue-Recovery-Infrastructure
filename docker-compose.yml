@@ -130,6 +130,21 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  ingestion-bridge:
+    build:
+      context: .
+      dockerfile: ./runner/Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INGESTION_STORE_NAME: ingestion_events
+      INGESTION_STORE_LIMIT: "200"
+    volumes:
+      - dashboard_data:/app/runner/data
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   splunk:
     image: splunk/splunk:latest
     container_name: revtrace-splunk
@@ -178,6 +193,7 @@ services:
     environment:
       DASHBOARD_HOST: 0.0.0.0
       DASHBOARD_PORT: 8080
+      DASHBOARD_DATA_DIR: /app/runner/data
       SPLUNK_REST_URL: https://splunk:8089
       SPLUNK_VERIFY_TLS: "false"
       SPLUNK_USERNAME: admin
@@ -185,6 +201,8 @@ services:
       SPLUNK_INDEX: revtrace
     ports:
       - "8080:8080"
+    volumes:
+      - dashboard_data:/app/runner/data
     depends_on:
       splunk:
         condition: service_healthy
@@ -197,3 +215,4 @@ volumes:
   wal_data:
   splunk_etc:
   splunk_var:
+  dashboard_data:

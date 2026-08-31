@@ -6,8 +6,8 @@ ENV PYTHONPATH=/app
 
 COPY common ./common
 COPY dashboard ./dashboard
+COPY runner ./runner
 
 EXPOSE 8080
 
 CMD ["python", "-u", "-m", "dashboard.server"]
-

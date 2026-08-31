@@ -1,17 +1,15 @@
 const $ = (id) => document.getElementById(id);
 
-function renderEvent(item) {
-  const el = document.createElement('div');
-  el.className = 'event';
-  el.innerHTML = `
-    <div><span class="pill">${item.stage || item.sourcetype || 'event'}</span>${item.event_type || 'unknown'}</div>
-    <div class="subtle">${item.transaction_id || ''}</div>
-    <div class="subtle">${item.timestamp || item._time || ''}</div>
-  `;
-  el.addEventListener('click', () => {
-    $('detail-view').textContent = JSON.stringify(item, null, 2);
-  });
-  return el;
+function parseRecord(item) {
+  if (item && typeof item._raw === 'string') {
+    try {
+      const parsed = JSON.parse(item._raw);
+      return { ...item, ...parsed, metadata: parsed.metadata || item.metadata };
+    } catch {
+      return item;
+    }
+  }
+  return item;
 }
 
 function escapeHtml(value) {
@@ -23,21 +21,34 @@ function escapeHtml(value) {
     .replaceAll("'", '&#39;');
 }
 
-function renderTable(items) {
-  if (!items.length) {
-    return '<div class="empty-state">No historical records found yet.</div>';
+function isDetectionEvent(item) {
+  return item.sourcetype === 'revtrace:detection' || item.stage === 'detection' || Boolean(item.metadata?.root_cause);
+}
+
+function renderTable(items, kind) {
+  const normalized = items.map(parseRecord);
+  if (!normalized.length) {
+    return kind === 'ingestion'
+      ? '<div class="empty-state">No ingestion records in Splunk yet. Ingestion events live in Kafka topics unless you bridge them into the index.</div>'
+      : '<div class="empty-state">No live records yet.</div>';
   }
-  const rows = items.map((item) => `
-    <tr data-record='${escapeHtml(JSON.stringify(item))}'>
-      <td>${escapeHtml(item._time || item.timestamp || '')}</td>
-      <td>${escapeHtml(item.stage || item.sourcetype || '')}</td>
-      <td>${escapeHtml(item.event_type || '')}</td>
-      <td>${escapeHtml(item.status || '')}</td>
-      <td>${escapeHtml(item.transaction_id || '')}</td>
-      <td>${escapeHtml(item.customer_id || '')}</td>
-      <td>${escapeHtml(item.failure_code || '')}</td>
-    </tr>
-  `).join('');
+  const rows = normalized.map((item) => {
+    const status = String(item.status || '').toLowerCase();
+    const anomaly = Boolean(item.metadata?.signals?.degradation?.anomaly || item.metadata?.signals?.failure || item.metadata?.root_cause);
+    const rowClass = kind === 'detection' && (status === 'failure' || anomaly) ? 'failure' : '';
+    return `
+      <tr class="${rowClass}" data-record="${escapeHtml(JSON.stringify(item))}">
+        <td>${escapeHtml(item._time || item.timestamp || '')}</td>
+        <td>${escapeHtml(item.stage || item.sourcetype || '')}</td>
+        <td>${escapeHtml(item.event_type || '')}</td>
+        <td>${escapeHtml(item.status || '')}</td>
+        <td>${escapeHtml(item.transaction_id || '')}</td>
+        <td>${escapeHtml(item.customer_id || '')}</td>
+        <td>${escapeHtml(item.failure_code || item.metadata?.root_cause?.failure_code || item.metadata?.root_cause?.stage || '')}</td>
+      </tr>
+    `;
+  }).join('');
+
   return `
     <div class="table-wrap">
       <table class="records-table">
@@ -58,6 +69,31 @@ function renderTable(items) {
   `;
 }
 
+function renderTraceLane(items) {
+  const normalized = items.map(parseRecord);
+  if (!normalized.length) {
+    return '<div class="empty-state">No trace found. Enter a transaction id to load the visual lane.</div>';
+  }
+  return normalized.map((item, index) => {
+    const detection = isDetectionEvent(item);
+    const status = String(item.status || '').toLowerCase();
+    const anomaly = Boolean(item.metadata?.signals?.degradation?.anomaly || item.metadata?.signals?.failure || item.metadata?.root_cause);
+    const tone = detection && (status === 'failure' || anomaly) ? 'failure' : detection ? 'detection' : 'ingestion';
+    return `
+      <article class="trace-card ${tone}">
+        <div class="trace-top">
+          <span class="pill">${escapeHtml(tone)}</span>
+          <span class="trace-step">Step ${index + 1}</span>
+        </div>
+        <div class="trace-title">${escapeHtml(item.event_type || item.stage || 'event')}</div>
+        <div class="trace-meta">${escapeHtml(item.timestamp || item._time || '')}</div>
+        <div class="trace-sub">${escapeHtml(item.service || item.sourcetype || '')}</div>
+        <div class="trace-sub">${escapeHtml(item.transaction_id || '')}</div>
+      </article>
+    `;
+  }).join('');
+}
+
 async function fetchJSON(path) {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`Request failed: ${res.status}`);
@@ -75,14 +111,20 @@ async function loadStats() {
   });
 }
 
-async function loadLocalRecords() {
-  const data = await fetchJSON('/api/recent');
-  const out = $('local-records');
-  if (!out) return;
-  out.innerHTML = renderTable(data.items || []);
-  out.querySelectorAll('tr[data-record]').forEach((row) => {
+async function loadTables() {
+  const [events, detections] = await Promise.all([
+    fetchJSON('/api/events'),
+    fetchJSON('/api/detections'),
+  ]);
+
+  const eventOut = $('event-table');
+  const detectionOut = $('detection-table');
+  eventOut.innerHTML = renderTable(events.items || [], 'ingestion');
+  detectionOut.innerHTML = renderTable(detections.items || [], 'detection');
+
+  document.querySelectorAll('[data-record]').forEach((row) => {
     row.addEventListener('click', () => {
-      $('detail-view').textContent = JSON.stringify(JSON.parse(row.dataset.record), null, 2);
+      $('detail-view').textContent = JSON.stringify(parseRecord(JSON.parse(row.dataset.record)), null, 2);
     });
   });
 }
@@ -99,7 +141,7 @@ async function runSearch() {
   const data = await fetchJSON(`/api/search?${params.toString()}`);
   const out = $('search-results');
   out.innerHTML = '';
-  data.items.forEach((item) => out.appendChild(renderEvent(item)));
+  out.innerHTML = renderTraceLane(data.items || []);
 }
 
 async function loadTrace() {
@@ -107,15 +149,13 @@ async function loadTrace() {
   if (!txn) return;
   const data = await fetchJSON(`/api/trace?transaction_id=${encodeURIComponent(txn)}`);
   const out = $('trace-results');
-  out.innerHTML = '';
-  data.items.forEach((item) => out.appendChild(renderEvent(item)));
-  if (data.items[0]) $('detail-view').textContent = JSON.stringify(data.items[0], null, 2);
+  out.innerHTML = renderTraceLane(data.items || []);
+  if (data.items?.[0]) $('detail-view').textContent = JSON.stringify(parseRecord(data.items[0]), null, 2);
 }
 
 async function refresh() {
   try {
-    await loadStats();
-    await loadLocalRecords();
+    await Promise.all([loadStats(), loadTables()]);
     $('last-refresh').textContent = `Updated ${new Date().toLocaleTimeString()}`;
   } catch (err) {
     $('last-refresh').textContent = `Waiting for data: ${err.message}`;

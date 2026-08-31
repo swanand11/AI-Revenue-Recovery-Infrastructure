@@ -55,30 +55,39 @@ http://localhost:8080
 - `capture.events`
 - `settlement.events`
 
-2. The detection consumer reads those topics, computes:
+2. The payment lifecycle is the source of truth and must stay in this order:
+
+- `checkout`
+- `payment`
+- `auth`
+- `capture`
+- `settlement`
+
+3. The detection consumer reads those topics, computes:
 
 - failure signals
 - degradation signals
 - customer intent
 - graph-based RCA
 
-3. Detection emits to:
+4. Detection emits to:
 
 - Kafka topic `detection.events`
 - Splunk HEC
 
-4. The dashboard queries Splunk directly and shows:
+5. The dashboard shows:
 
+- a live ingestion table from the Kafka bridge snapshot
+- a live detection table from Splunk
 - traceability for a `transaction_id`
 - core details of an event
 - smart search filters
 - live summary stats
-- the last 50 records from the live Splunk index
 - a dedicated mock event flow page
 
 ## Recommended launch flow
 
-The mock services already emit fresh events every 5 seconds, so the normal validation path is to start the stack and watch Splunk ingest those live events.
+The mock services already emit fresh events every 5 seconds, so the normal validation path is to start the stack and watch the bridge and Splunk reflect those live events.
 
 ```bash
 ./.venv/bin/python runner/e2e_runner.py --build
@@ -88,12 +97,13 @@ That command starts:
 
 - the mock ingestion services
 - Kafka and the topic bootstrap flow
+- the ingestion bridge
 - detection
 - the Kafka-to-Splunk forwarder
 - Splunk
 - the dashboard
 
-You should see terminal debug output confirming the launcher started the mock services, and then the dashboard should reflect the new records as Splunk ingests them.
+You should see terminal debug output confirming the launcher started the mock services and bridge, and then the dashboard should reflect new ingestion rows from the topic snapshot and detection rows from Splunk.
 
 ## Step-by-step debug flow
 
@@ -126,6 +136,7 @@ Use these commands to isolate where data stops moving:
 If the dashboard is still empty after step 4, the most likely leak points are:
 
 - Kafka topic creation
+- the ingestion bridge not consuming the topic snapshot
 - detection not publishing to `detection.events`
 - the forwarder not consuming `detection.events`
 - Splunk HEC not accepting writes

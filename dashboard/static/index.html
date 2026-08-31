@@ -11,9 +11,8 @@
     <section class="hero">
       <div>
         <p class="eyebrow">RevTrace live observability</p>
-        <h1>Trace ingestion to detection in real time.</h1>
-        <p class="lede">Search the live Splunk index, inspect propagation for a transaction, and drill into the raw event payloads.</p>
-        <p><a href="/flow">Open the mock event flow page</a></p>
+        <h1>Simple live tables for ingestion and detection.</h1>
+        <p class="lede">A minimal white dashboard for detection first. Ingestion lives on Kafka topics, while detection and traceability are surfaced here with a clean visual lane.</p>
       </div>
       <div class="status-card">
         <div class="status-label">Live stream</div>
@@ -23,7 +22,17 @@
 
     <section class="panel grid">
       <div class="card">
-        <h2>Smart Query</h2>
+        <h2>Traceability</h2>
+        <p class="subtle">Enter a transaction id to see the path from ingestion to detection.</p>
+        <div class="form single">
+          <input id="trace-txn" placeholder="transaction_id" />
+          <button id="trace-btn">Load trace</button>
+        </div>
+        <div id="trace-results" class="trace-lane"></div>
+      </div>
+
+      <div class="card">
+        <h2>Quick Search</h2>
         <div class="form">
           <input id="transaction_id" placeholder="transaction_id" />
           <input id="customer_id" placeholder="customer_id" />
@@ -31,24 +40,30 @@
           <input id="status" placeholder="status" />
           <input id="event_type" placeholder="event_type" />
           <input id="failure_code" placeholder="failure_code" />
-          <button id="search-btn">Search Splunk</button>
         </div>
+        <button id="search-btn">Search Splunk</button>
         <div id="search-results" class="results"></div>
+      </div>
+    </section>
+
+    <section class="panel grid">
+      <div class="card">
+        <h2>Event Table</h2>
+        <p class="subtle">Kafka-side ingestion is not yet bridged into Splunk, so this panel stays empty until a topic-to-index bridge is enabled.</p>
+        <div id="event-table" class="table-host"></div>
       </div>
 
       <div class="card">
-        <h2>Traceability</h2>
-        <p class="subtle">Choose a transaction and inspect the full chain from ingestion to detection.</p>
-        <input id="trace-txn" placeholder="transaction_id for trace view" />
-        <button id="trace-btn">Load Trace</button>
-        <div id="trace-results" class="trace"></div>
+        <h2>Detection Event Table</h2>
+        <p class="subtle">Fresh detection records with anomaly-based highlighting and de-duplicated traces.</p>
+        <div id="detection-table" class="table-host"></div>
       </div>
     </section>
 
     <section class="panel">
       <div class="card">
-        <h2>Core Event Details</h2>
-        <pre id="detail-view" class="detail">Select an event to inspect its full JSON payload.</pre>
+        <h2>Selected Event</h2>
+        <pre id="detail-view" class="detail">Click a row to inspect its JSON payload.</pre>
       </div>
     </section>
 
@@ -56,14 +71,6 @@
       <div class="card">
         <h2>Live Summary</h2>
         <div id="stats" class="stats"></div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="card">
-        <h2>Last 50 Records</h2>
-        <p class="subtle">This is the newest data from the live Splunk index.</p>
-        <div id="local-records" class="results"></div>
       </div>
     </section>
   </main>

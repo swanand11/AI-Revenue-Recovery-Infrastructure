@@ -30,6 +30,8 @@ TOPICS = [
     "settlement.events",
 ]
 
+SEEN_DETECTIONS: set[tuple[str, str, str, str | None]] = set()
+
 
 def validate_ingestion_event(event: dict[str, Any]) -> bool:
     stage = event.get("stage")
@@ -64,8 +66,19 @@ def process_event(
     }
     if signals["failure"] is None and not signals["degradation"]["anomaly"]:
         return None
+    status = "failure" if signals["failure"] else "success"
+    dedupe_key = (
+        event.get("transaction_id", ""),
+        event.get("stage", ""),
+        event.get("event_type", ""),
+        status,
+        signals["failure"]["failure_code"] if signals["failure"] else None,
+    )
+    if dedupe_key in SEEN_DETECTIONS:
+        return None
+    SEEN_DETECTIONS.add(dedupe_key)
     root = rca.explain(event)
-    return build_detection_event(event, signals, root["root_cause"])
+    return build_detection_event(event, signals, root["root_cause"], status=status)
 
 
 def parse_timestamp(timestamp: str) -> float:

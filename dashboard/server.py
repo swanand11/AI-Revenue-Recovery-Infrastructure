@@ -11,6 +11,7 @@ from dashboard.splunk_client import SplunkClient, SplunkConfig
 
 ROOT = Path(__file__).resolve().parent
 STATIC_DIR = ROOT / "static"
+DATA_DIR = Path(os.environ.get("DASHBOARD_DATA_DIR", ROOT.parent / "runner" / "data"))
 FAVICON_BYTES = b"""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
 <defs>
 <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
@@ -42,6 +43,17 @@ def text_response(handler: BaseHTTPRequestHandler, body: bytes, content_type: st
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def read_local_events(name: str, default: list[dict] | None = None) -> list[dict]:
+    path = DATA_DIR / f"{name}.json"
+    if not path.exists():
+        return default or []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default or []
+    return payload if isinstance(payload, list) else (default or [])
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -92,7 +104,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == "/api/stats":
                 return json_response(self, self.splunk.stats())
             if parsed.path == "/api/recent":
-                return json_response(self, {"items": self.splunk.recent_events(50)})
+                return json_response(self, {"items": read_local_events("ingestion_events")[-50:]})
+            if parsed.path == "/api/events":
+                return json_response(self, {"items": read_local_events("ingestion_events")[-50:]})
+            if parsed.path == "/api/detections":
+                query = (
+                    f'search index={self.splunk.config.index} (sourcetype="revtrace:detection" OR stage="detection" OR source="http:splunk_hec_token") '
+                    "| sort 0 -_time | head 50"
+                )
+                return json_response(self, {"items": self.splunk.export_search(query, earliest_time="-30d")})
             if parsed.path == "/api/flow":
                 return json_response(self, {"items": self.splunk.recent_events(50)})
             if parsed.path == "/api/lifecycle":
