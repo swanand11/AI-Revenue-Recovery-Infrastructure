@@ -43,6 +43,15 @@ Use `runner/reseed_live_splunk.py` to clear the live demo index and replay the b
 
 Use `runner/simulate_case.py` for a single mock transaction flow seeded into Splunk HEC.
 
+### Recovery Layer
+
+The preliminary Recovery Layer consumes Detection output from `recovery.events`, records the
+current transaction state in Redis, writes an audit acknowledgement to the shared WAL, and
+publishes a no-op acknowledgement to `recovery.acknowledgements`. It exposes the read-only API
+at `http://localhost:8090` (`/health`, `/ready`, and `/recovery/{transaction_id}`). Agent,
+consensus, policy, execution, and verification stages are interfaces only; no payment recovery
+action is performed.
+
 Use `scripts/splunk_bootstrap.py` for a small bootstrap event.
 
 Local development uses the HTTPS HEC endpoint on `https://localhost:8088` and the repo’s local self-signed Splunk certificate. Set `SPLUNK_HEC_VERIFY_CERT=false` for the local dev default, or supply `--no-verify-cert` to the seed/bootstrap scripts when using the self-signed cert.

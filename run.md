@@ -24,6 +24,7 @@ capture.events
 settlement.events
 detection.events
 recovery.events
+recovery.acknowledgements
 ```
 
 ## 2. Start ingestion
@@ -103,6 +104,9 @@ published detection event_id=... transaction_id=...
 ```
 
 The publisher writes the same Detection Event to both `detection.events` and `recovery.events`.
+
+The Recovery service consumes `recovery.events` and acknowledges candidates without executing
+recovery actions. Inspect state with `curl http://localhost:8090/recovery/<transaction_id>`.
 
 The next line proves the Detection components ran:
 

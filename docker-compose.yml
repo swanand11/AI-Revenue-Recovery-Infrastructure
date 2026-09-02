@@ -44,6 +44,7 @@ services:
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic settlement.events --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic detection.events --partitions 3 --replication-factor 1
         /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic recovery.events --partitions 3 --replication-factor 1
+        /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic recovery.acknowledgements --partitions 3 --replication-factor 1
 
   checkout-service:
     profiles: ["legacy"]
@@ -153,6 +154,46 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  recovery-service:
+    build:
+      context: .
+      dockerfile: ./recovery/Dockerfile
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      REDIS_URL: redis://redis:6379/0
+      WAL_PATH: /app/wal/events.jsonl
+    volumes:
+      - wal_data:/app/wal
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  recovery-api:
+    build:
+      context: .
+      dockerfile: ./recovery/Dockerfile
+    command: ["uvicorn", "recovery.api.main:app", "--host", "0.0.0.0", "--port", "8090"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8090:8090"
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
 
   ingestion-bridge:
