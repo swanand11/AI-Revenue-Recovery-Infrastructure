@@ -36,7 +36,7 @@ jobs:
 
       - name: Start Docker Compose stack (Kafka + mock services)
         run: |
-          docker compose -f "$COMPOSE_FILE" up -d --build
+          docker compose --profile legacy -f "$COMPOSE_FILE" up -d --build
           docker compose -f "$COMPOSE_FILE" ps
 
       - name: Wait for Kafka to be ready
