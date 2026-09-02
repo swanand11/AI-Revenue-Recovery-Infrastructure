@@ -82,10 +82,13 @@ function renderTraceLane(items) {
     return '<div class="empty-state">No trace found. Enter a transaction id to load the visual lane.</div>';
   }
   return normalized.map((item, index) => {
-    const detection = isDetectionEvent(item);
+    const annotation = item.detection;
     const status = String(item.status || '').toLowerCase();
-    const anomaly = Boolean(item.metadata?.signals?.degradation?.anomaly || item.metadata?.signals?.failure || item.metadata?.root_cause);
-    const tone = detection && status === 'failure' ? 'failure' : detection && anomaly ? 'detection-anomaly' : detection ? 'detection' : status === 'failure' ? 'ingestion-failure' : 'ingestion';
+    const failed = status === 'failure' || status === 'unknown';
+    const tone = failed ? 'ingestion-failure' : 'ingestion';
+    const detectionText = annotation
+      ? `Detection annotation: ${annotation.metadata?.root_cause?.component || annotation.metadata?.root_cause?.type || 'failure analyzed'}`
+      : 'No Detection annotation';
     return `
       <article class="trace-card ${tone}">
         <div class="trace-top">
@@ -95,8 +98,8 @@ function renderTraceLane(items) {
         <div class="trace-title">${escapeHtml(item.event_type || item.stage || 'event')}</div>
         <div class="trace-meta">${escapeHtml(item.timestamp || item._time || '')}</div>
         <div class="trace-sub">${escapeHtml(item.service || item.sourcetype || '')}</div>
-        <div class="trace-sub">${escapeHtml(item.detection_id ? `Source: ${item.metadata?.source_event_type || item.event_type}` : 'Source ingestion event')}</div>
-        <div class="trace-sub">${escapeHtml(item.status || '')}${item.failure_code ? ` · ${escapeHtml(item.failure_code)}` : ''}</div>
+        <div class="trace-sub">Source ingestion event · ${escapeHtml(detectionText)}</div>
+        <div class="trace-sub">${escapeHtml(item.status || '')}${item.failure_code ? ` · ${escapeHtml(item.failure_code)}` : ''}${failed ? ' · failure candidate' : ''}</div>
         <div class="trace-sub">${escapeHtml(item.transaction_id || '')}</div>
       </article>
     `;

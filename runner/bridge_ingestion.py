@@ -15,7 +15,7 @@ from runner.store import append_record, read_json, write_json
 
 
 TOPICS = [cfg["topic"] for cfg in SERVICE_CONFIG.values()]
-DEFAULT_LIMIT = 200
+DEFAULT_LIMIT = None
 
 
 def parse_message(value: dict) -> dict:
@@ -28,7 +28,8 @@ def parse_message(value: dict) -> dict:
 def main() -> None:
     bootstrap_servers = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     store_name = os.environ.get("INGESTION_STORE_NAME", "ingestion_events")
-    limit = int(os.environ.get("INGESTION_STORE_LIMIT", str(DEFAULT_LIMIT)))
+    configured_limit = os.environ.get("INGESTION_STORE_LIMIT")
+    limit = int(configured_limit) if configured_limit else DEFAULT_LIMIT
     consumer = KafkaConsumer(
         *TOPICS,
         bootstrap_servers=bootstrap_servers.split(","),

@@ -2,7 +2,7 @@ const $ = (id) => document.getElementById(id);
 
 function statusClass(state) {
   if (state === 'seen') return 'ok';
-  if (state === 'missing') return 'bad';
+  if (state === 'failed' || state === 'missing') return 'bad';
   return 'warn';
 }
 
@@ -27,20 +27,14 @@ async function fetchJSON(path) {
 }
 
 function buildLifecycle(items) {
-  const phases = [
-    { label: 'checkout', match: (item) => item.stage === 'checkout' || item.event_type === 'checkout_started' },
-    { label: 'payment', match: (item) => item.stage === 'payment' || item.event_type === 'payment_created' },
-    { label: 'auth', match: (item) => item.stage === 'authorization' || item.event_type === 'authorization_requested' },
-    { label: 'capture', match: (item) => item.stage === 'capture' || item.event_type === 'capture_requested' },
-    { label: 'settlement', match: (item) => item.stage === 'settlement' || item.event_type === 'settlement_initiated' },
-  ];
-  return phases.map((phase) => {
-    const hit = items.find(phase.match);
+  return items.map((item, index) => {
+    const failed = item.status === 'failure' || item.status === 'unknown';
+    const detection = item.detection;
     return {
-      label: phase.label,
-      state: hit ? 'seen' : 'missing',
-      detail: hit ? `${hit.event_type || ''} from ${hit.service || hit.sourcetype}` : 'No matching event found in the transaction timeline',
-      timestamp: hit ? hit.timestamp : '',
+      label: `Step ${index + 1}: ${item.event_type || item.stage || 'source event'}`,
+      state: failed ? 'failed' : 'seen',
+      detail: `${item.status || ''}${item.failure_code ? ` · ${item.failure_code}` : ''}${detection ? ` · Detection: ${detection.metadata?.root_cause?.component || 'analyzed'}` : ''}`,
+      timestamp: item.timestamp || item._time || '',
     };
   });
 }
@@ -53,8 +47,8 @@ async function loadLifecycle() {
   const out = $('lifecycle-items');
   out.innerHTML = '';
   rows.forEach((row) => out.appendChild(renderLifecycleRow(row)));
-  const ok = rows.every((row) => row.state === 'seen');
-  $('lifecycle-state').textContent = ok ? 'Lifecycle aligned' : 'Lifecycle partial';
+  const ok = rows.length > 0 && rows.every((row) => row.state === 'seen');
+  $('lifecycle-state').textContent = ok ? 'Lifecycle complete' : rows.length ? 'Failure point shown' : 'No source events';
 }
 
 $('load-lifecycle').addEventListener('click', loadLifecycle);

@@ -57,20 +57,23 @@ def read_local_events(name: str, default: list[dict] | None = None) -> list[dict
 
 
 def combined_trace(transaction_id: str) -> list[dict]:
-    """Join Kafka bridge ingestion records with Splunk Recovery output."""
+    """Return source ingestion events, attaching matching Detection annotations."""
     kafka_items = [item for item in read_local_events("ingestion_events") if item.get("transaction_id") == transaction_id]
     splunk_items = DashboardHandler.splunk.get_trace(transaction_id)
-    by_event_id = {f"kafka:{item.get('event_id')}": item for item in kafka_items if item.get("event_id")}
+    source_items = {item.get("event_id"): dict(item) for item in kafka_items if item.get("event_id")}
     for item in splunk_items:
-        if item.get("event_id"):
-            by_event_id[f"splunk:{item['event_id']}"] = item
-        else:
-            by_event_id[f"splunk:{len(by_event_id)}"] = item
+        source_event_id = item.get("event_id")
+        if source_event_id in source_items:
+            source_items[source_event_id]["detection"] = item
     def sort_key(item: dict) -> tuple:
         sequence = item.get("metadata", {}).get("lifecycle_sequence")
-        return (sequence if isinstance(sequence, int) else 10_000, item.get("timestamp", item.get("_time", "")))
+        if isinstance(sequence, int):
+            return (0, sequence, item.get("_partition", -1), item.get("_offset", -1))
+        if isinstance(item.get("_partition"), int) and isinstance(item.get("_offset"), int):
+            return (1, item["_partition"], item["_offset"])
+        return (2, item.get("timestamp", item.get("_time", "")))
 
-    return sorted(by_event_id.values(), key=sort_key)
+    return sorted(source_items.values(), key=sort_key)
 
 
 class DashboardHandler(BaseHTTPRequestHandler):

@@ -36,6 +36,8 @@ In a second terminal:
 
 This starts one authoritative `mock-pipeline`, not five independent transaction generators. Watch for `sent topic=... key=... event_id=... transaction_id=...`. If the transaction ID changes within one lifecycle, the leak is at the generator boundary.
 
+With no scenario override, the demo emits a seeded random failure at a valid lifecycle stage with a contract-valid failure code, so Detection/RCA/Splunk output is visible immediately. Use `MOCK_SCENARIO=normal` when you need a healthy lifecycle with no failure output. Change `MOCK_SEED` to reproduce or vary the generated failure.
+
 Choose a coherent scenario when needed:
 
 ```bash
@@ -44,7 +46,23 @@ MOCK_SCENARIO=payment_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=authorization_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=capture_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=settlement_failure ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=random_failure MOCK_SEED=42 ./.venv/bin/python runner/start_mocks.py --build
 ```
+
+To reproduce an unknown outcome at a specific lifecycle boundary, use one of:
+
+```bash
+MOCK_SCENARIO=checkout_unknown ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=payment_unknown ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=authorization_unknown ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=capture_unknown ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=settlement_unknown ./.venv/bin/python runner/start_mocks.py --build
+```
+
+Every normal-flow line should show `status=success`. A `failure` or `unknown` line is terminal;
+the producer must not print any later lifecycle event for that transaction. The producer also
+prints `lifecycle_validation=passed` before each accepted event. Any invalid source change should
+fail with `INVALID_LIFECYCLE_TRANSITION` before WAL/Kafka publication.
 
 Run one named transaction for dashboard reconstruction:
 

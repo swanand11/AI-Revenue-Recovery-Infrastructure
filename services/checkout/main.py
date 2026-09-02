@@ -29,7 +29,7 @@ def generate_transaction_events() -> list[dict]:
         transaction_context=tx,
         event_type=CONFIG["start_event"],
         amount=amount,
-        status="unknown",
+        status="success",
         parent_span_id=parent_span_id,
     )
     events.append(start_event)

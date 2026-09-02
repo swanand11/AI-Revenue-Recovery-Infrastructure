@@ -25,8 +25,8 @@ It preserves the original Kafka keying convention (`transaction_id`), calculates
 ### Services
 
 - `detection-service` runs the Kafka consumer and publisher loop.
-- Ingestion services publish directly to Kafka, and `detection-service` consumes those topics and forwards detection output to Splunk.
-- `splunk-forwarder` consumes `detection.events` and writes the records to Splunk HEC.
+- Ingestion services publish directly to Kafka, and `detection-service` consumes those topics and publishes only failure/unknown Detection output to `recovery.events`; the Splunk forwarder indexes that output.
+- `splunk-forwarder` consumes `recovery.events` and writes the records to Splunk HEC.
 - `detection.events` is created in Kafka alongside the ingestion topics.
 - `splunk` runs locally in Docker with persisted `/opt/splunk/etc` and `/opt/splunk/var` volumes.
 - `splunk-seed` loads the bundled synthetic dataset into Splunk through HEC.

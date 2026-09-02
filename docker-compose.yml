@@ -129,11 +129,11 @@ services:
     build:
       context: .
       dockerfile: ./runner/Dockerfile
-    command: ["python", "-u", "runner/mock_pipeline.py"]
+    command: ["python", "-u", "-m", "runner.mock_pipeline"]
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       WAL_PATH: /app/wal/events.jsonl
-      MOCK_SCENARIO: ${MOCK_SCENARIO:-normal}
+      MOCK_SCENARIO: ${MOCK_SCENARIO:-random_failure}
       MOCK_SEED: ${MOCK_SEED:-753251}
       MOCK_TRANSACTION_ID: ${MOCK_TRANSACTION_ID:-}
       MOCK_INTERVAL_SECONDS: ${MOCK_INTERVAL_SECONDS:-5}
@@ -162,7 +162,6 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       INGESTION_STORE_NAME: ingestion_events
-      INGESTION_STORE_LIMIT: "200"
     volumes:
       - dashboard_data:/app/runner/data
     depends_on:

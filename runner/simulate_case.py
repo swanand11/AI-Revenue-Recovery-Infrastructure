@@ -12,8 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from common.event import build_event
-from common.ids import generate_transaction_context
+from runner.mock_pipeline import build_scenario_events
 from detection.publisher.splunk import build_hec_event_url, build_ssl_context, default_verify_cert_for_url, normalize_hec_time
 
 
@@ -41,40 +40,7 @@ def hec_post(hec_url: str, token: str, payload: dict, *, verify_cert: bool) -> N
 
 
 def generate_case_events() -> list[dict]:
-    tx = generate_transaction_context()
-    amount = 5000
-    events = []
-    parent_span_id = None
-    steps = [
-        ("checkout-service", "checkout_started", "unknown", None),
-        ("checkout-service", "checkout_completed", "success", None),
-        ("payment-service", "payment_created", "unknown", None),
-        ("payment-service", "payment_succeeded", "success", None),
-        ("authorization-service", "authorization_requested", "unknown", None),
-        ("authorization-service", "authorization_failed", "failure", "ISSUER_TIMEOUT"),
-    ]
-    customer_score = 0.92
-    degradation_score = 0.18
-    for service, event_type, status, failure_code in steps:
-        event = build_event(
-            service_name=service,
-            transaction_context=tx,
-            event_type=event_type,
-            amount=amount,
-            status=status,
-            failure_code=failure_code,
-            parent_span_id=parent_span_id,
-            metadata={
-                "customer_intent_score": round(customer_score, 3),
-                "payment_degradation_score": round(degradation_score, 3),
-            },
-        )
-        parent_span_id = event["span_id"]
-        events.append(event)
-        if status == "failure":
-            customer_score = max(0.12, customer_score - 0.34)
-            degradation_score = min(0.99, degradation_score + 0.41)
-    return events
+    return build_scenario_events("authorization_failure", seed=407206)
 
 
 def main() -> None:
@@ -94,6 +60,8 @@ def main() -> None:
 
     while True:
         for event in generate_case_events():
+            if event["status"] not in {"failure", "unknown"}:
+                continue
             hec_post(
                 args.hec_url,
                 args.hec_token,

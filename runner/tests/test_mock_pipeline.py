@@ -33,7 +33,7 @@ def test_failure_scenarios_stop_at_the_failed_stage(scenario, last_type, forbidd
 
 def test_unknown_scenario_is_rejected():
     with pytest.raises(ValueError):
-        scenario_steps("random_failure")
+        scenario_steps("not_a_supported_scenario")
 
 
 def test_repeated_cycles_use_new_event_ids_but_one_context_per_cycle():
@@ -47,3 +47,19 @@ def test_named_transaction_id_is_propagated():
     events = build_scenario_events("normal", seed=1, transaction_id="txn_trace_final_001")
     assert {event["transaction_id"] for event in events} == {"txn_trace_final_001"}
     assert {event["trace_id"] for event in events} == {"trace_txn_trace_final_001"}
+
+
+def test_random_failure_is_seeded_and_dynamic():
+    runs = [build_scenario_events("random_failure", seed=seed) for seed in range(20)]
+    outcomes = {(events[-1]["event_type"], events[-1]["failure_code"]) for events in runs}
+    assert len(outcomes) > 1
+    assert all(events[-1]["status"] == "failure" for events in runs)
+    assert all(event["status"] == "success" for events in runs for event in events[:-1])
+
+
+def test_random_failure_repeats_for_the_same_seed():
+    first = build_scenario_events("random_failure", seed=42)
+    second = build_scenario_events("random_failure", seed=42)
+    assert [(event["event_type"], event["status"], event["failure_code"]) for event in first] == [
+        (event["event_type"], event["status"], event["failure_code"]) for event in second
+    ]

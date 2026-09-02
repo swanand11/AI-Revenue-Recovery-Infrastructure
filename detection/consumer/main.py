@@ -117,7 +117,7 @@ def process_event(
         }
     if diagnostics is not None:
         diagnostics["signals"] = signals
-    if event["status"] != "failure":
+    if event["status"] not in {"failure", "unknown"}:
         if diagnostics is not None:
             diagnostics["decision"] = "skipped_source_context_only"
         return None

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import random
 import time
 from dataclasses import dataclass, replace
 
@@ -11,7 +12,12 @@ from common.kafka import KafkaPublisher
 from common.wal import WalWriter
 
 
-SCENARIOS = {"normal", "payment_failure", "authorization_failure", "capture_failure", "settlement_failure"}
+SCENARIOS = {
+    "normal", "random_failure", "checkout_failure", "checkout_unknown", "payment_failure", "payment_unknown",
+    "authorization_failure", "authorization_unknown", "capture_failure", "capture_unknown",
+    "settlement_failure", "settlement_unknown",
+}
+FAILURE_CODES = ("TIMEOUT", "ISSUER_TIMEOUT", "GATEWAY_ERROR", "ISSUER_DECLINED", "INSUFFICIENT_FUNDS", "SERVICE_ERROR")
 
 
 class LifecycleTransitionError(ValueError):
@@ -21,6 +27,7 @@ class LifecycleTransitionError(ValueError):
 _REQUIRED_PREDECESSOR = {
     "checkout_started": None,
     "checkout_completed": "checkout_started",
+    "checkout_failed": "checkout_started",
     "payment_created": "checkout_completed",
     "payment_succeeded": "payment_created",
     "payment_failed": "payment_created",
@@ -34,9 +41,6 @@ _REQUIRED_PREDECESSOR = {
     "settlement_succeeded": "settlement_initiated",
     "settlement_failed": "settlement_initiated",
 }
-_FAILURE_EVENTS = {event_type for event_type in _REQUIRED_PREDECESSOR if event_type.endswith("_failed")}
-
-
 @dataclass
 class TransactionStateStore:
     """Runtime-only guard for causal ordering; Kafka/WAL remain the source stream."""
@@ -79,32 +83,73 @@ class TransactionStateStore:
                 f"current_state={self.last_event_type or 'none'} attempted_event={event_type}"
             )
         self.last_event_type = event_type
-        self.terminal = event_type in _FAILURE_EVENTS
+        self.terminal = event.get("status") in {"failure", "unknown"}
 
 
-def scenario_steps(scenario: str) -> list[tuple[str, str, str, str | None]]:
+def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, str, str, str | None]]:
     if scenario not in SCENARIOS:
         raise ValueError(f"unknown mock scenario: {scenario}")
     steps = [
-        ("checkout-service", "checkout_started", "unknown", None),
+        ("checkout-service", "checkout_started", "success", None),
         ("checkout-service", "checkout_completed", "success", None),
-        ("payment-service", "payment_created", "unknown", None),
+        ("payment-service", "payment_created", "success", None),
         ("payment-service", "payment_succeeded", "success", None),
-        ("authorization-service", "authorization_requested", "unknown", None),
+        ("authorization-service", "authorization_requested", "success", None),
     ]
+    if scenario == "random_failure":
+        rng = random.Random(seed)
+        failure_stage = rng.choice(("checkout", "payment", "authorization", "capture", "settlement"))
+        failure_code = rng.choice(FAILURE_CODES)
+        if failure_stage == "checkout":
+            return [("checkout-service", "checkout_started", "success", None),
+                    ("checkout-service", "checkout_failed", "failure", failure_code)]
+        if failure_stage == "payment":
+            return steps[:2] + [("payment-service", "payment_created", "success", None),
+                                ("payment-service", "payment_failed", "failure", failure_code)]
+        if failure_stage == "authorization":
+            return steps + [("authorization-service", "authorization_failed", "failure", failure_code)]
+        steps += [("authorization-service", "authorization_succeeded", "success", None),
+                  ("capture-service", "capture_requested", "success", None)]
+        if failure_stage == "capture":
+            return steps + [("capture-service", "capture_failed", "failure", failure_code)]
+        steps += [("capture-service", "capture_succeeded", "success", None),
+                  ("settlement-service", "settlement_initiated", "success", None)]
+        return steps + [("settlement-service", "settlement_failed", "failure", failure_code)]
+    if scenario == "checkout_failure":
+        return [("checkout-service", "checkout_started", "failure", "SERVICE_ERROR")]
+    if scenario == "checkout_unknown":
+        return [("checkout-service", "checkout_started", "unknown", None)]
     if scenario == "payment_failure":
-        return steps[:3] + [("payment-service", "payment_failed", "failure", "GATEWAY_ERROR")]
+        return steps[:2] + [("payment-service", "payment_created", "success", None),
+                             ("payment-service", "payment_failed", "failure", "GATEWAY_ERROR")]
+    if scenario == "payment_unknown":
+        return steps[:2] + [("payment-service", "payment_created", "unknown", None)]
     if scenario == "authorization_failure":
         return steps + [("authorization-service", "authorization_failed", "failure", "ISSUER_TIMEOUT")]
+    if scenario == "authorization_unknown":
+        return steps[:-1] + [("authorization-service", "authorization_requested", "unknown", None)]
     steps += [("authorization-service", "authorization_succeeded", "success", None),
-              ("capture-service", "capture_requested", "unknown", None)]
+              ("capture-service", "capture_requested", "success", None)]
     if scenario == "capture_failure":
         return steps + [("capture-service", "capture_failed", "failure", "GATEWAY_ERROR")]
+    if scenario == "capture_unknown":
+        return steps[:-1] + [("capture-service", "capture_requested", "unknown", None)]
     steps += [("capture-service", "capture_succeeded", "success", None),
-              ("settlement-service", "settlement_initiated", "unknown", None)]
+              ("settlement-service", "settlement_initiated", "success", None)]
     if scenario == "settlement_failure":
         return steps + [("settlement-service", "settlement_failed", "failure", "SERVICE_ERROR")]
+    if scenario == "settlement_unknown":
+        return steps[:-1] + [("settlement-service", "settlement_initiated", "unknown", None)]
     return steps + [("settlement-service", "settlement_succeeded", "success", None)]
+
+
+def status_distribution(events: list[dict]) -> dict[str, float]:
+    """Return deterministic percentages for diagnosing source status generation."""
+    counts = {status: 0 for status in ("success", "failure", "unknown")}
+    for event in events:
+        counts[event["status"]] += 1
+    total = len(events)
+    return {status: round(count / total * 100, 2) for status, count in counts.items()} if total else counts
 
 
 def build_scenario_events(scenario: str, seed: int, transaction_id: str | None = None) -> list[dict]:
@@ -114,7 +159,7 @@ def build_scenario_events(scenario: str, seed: int, transaction_id: str | None =
     parent_span_id = None
     events = []
     state_store = None
-    for sequence, (service, event_type, status, failure_code) in enumerate(scenario_steps(scenario)):
+    for sequence, (service, event_type, status, failure_code) in enumerate(scenario_steps(scenario, seed)):
         event = build_event(
             service_name=service,
             transaction_context=context,
@@ -152,7 +197,9 @@ def run_once(scenario: str, seed: int, wal: WalWriter, publisher: KafkaPublisher
 
 
 def main() -> None:
-    scenario = os.environ.get("MOCK_SCENARIO", "normal")
+    # The default is a visible demo failure; use MOCK_SCENARIO=normal for a healthy run.
+    # The default demo varies the failure stage/code while remaining reproducible per seed.
+    scenario = os.environ.get("MOCK_SCENARIO", "random_failure")
     interval = float(os.environ.get("MOCK_INTERVAL_SECONDS", "5"))
     seed = int(os.environ.get("MOCK_SEED", "753251"))
     transaction_id = os.environ.get("MOCK_TRANSACTION_ID")

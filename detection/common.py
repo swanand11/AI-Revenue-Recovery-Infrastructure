@@ -32,8 +32,8 @@ def stage_service_name(stage: str) -> str:
 
 
 def is_failure_event(event: dict[str, Any]) -> bool:
-    # Event type describes the lifecycle stage; status is the authoritative failure signal.
-    return event.get("status") == "failure"
+    # Unknown is an unresolved failure outcome for the current Detection contract.
+    return event.get("status") in {"failure", "unknown"}
 
 
 def detection_event_type_for(stage: str) -> str:

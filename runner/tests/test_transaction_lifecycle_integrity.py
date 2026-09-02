@@ -52,9 +52,9 @@ def test_failure_is_terminal_and_never_emits_downstream_events(scenario, termina
 def test_missing_prerequisite_is_rejected_before_publication():
     context = generate_transaction_context(seed=359099)
     store = TransactionStateStore(transaction_id=context.transaction_id)
-    checkout_started = build_event("checkout-service", context, "checkout_started", 5000, status="unknown")
+    checkout_started = build_event("checkout-service", context, "checkout_started", 5000)
     checkout_completed = build_event("checkout-service", context, "checkout_completed", 5000)
-    payment_created = build_event("payment-service", context, "payment_created", 5000, status="unknown")
+    payment_created = build_event("payment-service", context, "payment_created", 5000)
     authorization_requested = build_event("authorization-service", context, "authorization_requested", 5000, status="unknown")
     for event in (checkout_started, checkout_completed, payment_created):
         store.validate_and_apply(event)

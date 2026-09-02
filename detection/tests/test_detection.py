@@ -127,3 +127,13 @@ def test_successful_source_with_degradation_anomaly_is_still_context_only(monkey
     det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore(), diagnostics=diagnostics)
     assert det is None
     assert diagnostics["decision"] == "skipped_source_context_only"
+
+
+def test_unknown_source_is_a_failure_detection_candidate():
+    event = make_event(event_id="evt_unknown_failure", status="unknown", failure_code=None, event_type="payment_created")
+    diagnostics = {}
+    det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore(), diagnostics=diagnostics)
+    assert det is not None
+    assert det["status"] == "failure"
+    assert det["failure_code"] is None
+    assert det["metadata"]["source_status"] == "unknown"
