@@ -12,11 +12,11 @@ from urllib.parse import urlparse
 
 
 class SplunkAdapter(Protocol):
-    def emit(self, event: dict) -> None: ...
+    def emit(self, event: dict, fields: dict[str, str] | None = None) -> None: ...
 
 
 class NullSplunkAdapter:
-    def emit(self, event: dict) -> None:
+    def emit(self, event: dict, fields: dict[str, str] | None = None) -> None:
         return None
 
 
@@ -81,7 +81,7 @@ class SplunkHeCAdapter:
     verify_cert: bool | None = None
     ca_cert_path: str | None = None
 
-    def emit(self, event: dict) -> None:
+    def emit(self, event: dict, fields: dict[str, str] | None = None) -> None:
         payload = {
             "time": normalize_hec_time(event.get("timestamp")),
             "host": "detection-service",
@@ -89,6 +89,8 @@ class SplunkHeCAdapter:
             "sourcetype": self.sourcetype,
             "event": event,
         }
+        if fields:
+            payload["fields"] = fields
         request = urllib.request.Request(
             build_hec_event_url(self.hec_url),
             data=json.dumps(payload).encode("utf-8"),

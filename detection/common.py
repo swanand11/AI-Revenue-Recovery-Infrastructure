@@ -6,6 +6,7 @@ from typing import Any
 from common.config import SERVICE_CONFIG
 
 DETECTION_TOPIC = "detection.events"
+RECOVERY_TOPIC = "recovery.events"
 SUPPORTED_PAYMENT_METHODS = ("UPI", "RuPay", "Visa", "Mastercard", "Net Banking")
 
 STAGE_MODEL = {
@@ -31,7 +32,8 @@ def stage_service_name(stage: str) -> str:
 
 
 def is_failure_event(event: dict[str, Any]) -> bool:
-    return event.get("status") == "failure" or str(event.get("event_type", "")).endswith("_failed")
+    # Event type describes the lifecycle stage; status is the authoritative failure signal.
+    return event.get("status") == "failure"
 
 
 def detection_event_type_for(stage: str) -> str:
@@ -43,4 +45,3 @@ class WeightedEdge:
     source: str
     target: str
     weight: float
-

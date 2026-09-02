@@ -19,7 +19,7 @@ def main() -> None:
         cmd.append("--build")
     cmd.extend(["kafka", "kafka-init", "detection-service"])
 
-    print("Starting Kafka and detection consumer. Detection publishes to detection.events.", flush=True)
+    print("Starting Kafka and detection consumer. Detection publishes to detection.events and recovery.events.", flush=True)
     subprocess.run(cmd, check=True, cwd=ROOT)
 
 

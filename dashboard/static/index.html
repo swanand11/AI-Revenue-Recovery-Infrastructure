@@ -12,7 +12,8 @@
       <div>
         <p class="eyebrow">RevTrace live observability</p>
         <h1>Simple live tables for ingestion and detection.</h1>
-        <p class="lede">A minimal white dashboard for detection first. Ingestion lives on Kafka topics, while detection and traceability are surfaced here with a clean visual lane.</p>
+        <p class="lede">Kafka shows ingestion. Splunk shows detection. Use the lifecycle view to follow one transaction across both.</p>
+        <p><a href="/flow">Live flow</a> · <a href="/lifecycle">Transaction lifecycle</a></p>
       </div>
       <div class="status-card">
         <div class="status-label">Live stream</div>
@@ -49,7 +50,7 @@
     <section class="panel grid">
       <div class="card">
         <h2>Event Table</h2>
-        <p class="subtle">Kafka-side ingestion is not yet bridged into Splunk, so this panel stays empty until a topic-to-index bridge is enabled.</p>
+        <p class="subtle">Latest events captured from the Kafka topic bridge.</p>
         <div id="event-table" class="table-host"></div>
       </div>
 

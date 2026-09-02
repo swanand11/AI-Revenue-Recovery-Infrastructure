@@ -56,6 +56,23 @@ def read_local_events(name: str, default: list[dict] | None = None) -> list[dict
     return payload if isinstance(payload, list) else (default or [])
 
 
+def combined_trace(transaction_id: str) -> list[dict]:
+    """Join Kafka bridge ingestion records with Splunk Recovery output."""
+    kafka_items = [item for item in read_local_events("ingestion_events") if item.get("transaction_id") == transaction_id]
+    splunk_items = DashboardHandler.splunk.get_trace(transaction_id)
+    by_event_id = {f"kafka:{item.get('event_id')}": item for item in kafka_items if item.get("event_id")}
+    for item in splunk_items:
+        if item.get("event_id"):
+            by_event_id[f"splunk:{item['event_id']}"] = item
+        else:
+            by_event_id[f"splunk:{len(by_event_id)}"] = item
+    def sort_key(item: dict) -> tuple:
+        sequence = item.get("metadata", {}).get("lifecycle_sequence")
+        return (sequence if isinstance(sequence, int) else 10_000, item.get("timestamp", item.get("_time", "")))
+
+    return sorted(by_event_id.values(), key=sort_key)
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     splunk = SplunkClient(
         SplunkConfig(
@@ -96,7 +113,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/trace":
                 txn = parse_qs(parsed.query).get("transaction_id", [""])[0]
-                return json_response(self, {"items": self.splunk.get_trace(txn) if txn else []})
+                return json_response(self, {"items": combined_trace(txn) if txn else []})
             if parsed.path == "/api/search":
                 q = parse_qs(parsed.query)
                 filters = {k: q.get(k, [""])[0] for k in ("stage", "status", "event_type", "customer_id", "transaction_id", "failure_code")}
@@ -109,14 +126,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return json_response(self, {"items": read_local_events("ingestion_events")[-50:]})
             if parsed.path == "/api/detections":
                 query = (
-                    f'search index={self.splunk.config.index} (sourcetype="revtrace:detection" OR stage="detection" OR source="http:splunk_hec_token") '
+                    f'search index={self.splunk.config.index} (kafka_topic="recovery.events" OR sourcetype="revtrace:detection" OR stage="detection" OR source="http:splunk_hec_token") '
                     "| sort 0 -_time | head 50"
                 )
                 return json_response(self, {"items": self.splunk.export_search(query, earliest_time="-30d")})
             if parsed.path == "/api/flow":
                 return json_response(self, {"items": self.splunk.recent_events(50)})
             if parsed.path == "/api/lifecycle":
-                return json_response(self, {"items": self.splunk.recent_events(50)})
+                txn = parse_qs(parsed.query).get("transaction_id", [""])[0]
+                items = combined_trace(txn) if txn else self.splunk.recent_events(50)
+                return json_response(self, {"items": items})
             json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # pragma: no cover - runtime integration
             json_response(self, {"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)

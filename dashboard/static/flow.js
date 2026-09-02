@@ -5,7 +5,7 @@ function renderFlowItem(item) {
   el.className = 'flow-item';
   el.innerHTML = `
     <div class="flow-head">
-      <span class="pill">${item.sourcetype || item.stage || 'event'}</span>
+      <span class="pill">${item.kafka_topic || item.sourcetype || item.stage || 'event'}</span>
       <strong>${item.event_type || item.stage || 'live event'}</strong>
     </div>
     <div class="subtle">${item.transaction_id || ''} · ${item.service || item.host || ''} · ${item.timestamp || item._time || ''}</div>
@@ -25,7 +25,7 @@ async function refreshFlow() {
   const out = $('flow-items');
   out.innerHTML = '';
   data.items.forEach((item) => out.appendChild(renderFlowItem(item)));
-  const detectionCount = data.items.filter((item) => item.sourcetype === 'revtrace:detection').length;
+  const detectionCount = data.items.filter((item) => item.kafka_topic === 'recovery.events' || item.sourcetype === 'revtrace:detection').length;
   $('flow-count').textContent = `${data.items.length} recent events, ${detectionCount} detections`;
 }
 

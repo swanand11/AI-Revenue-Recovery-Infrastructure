@@ -5,9 +5,9 @@ from pathlib import Path
 
 from common.event import VALID_EVENT_TYPES
 from common.ids import generate_transaction_context
-from detection.consumer.main import validate_ingestion_event
+from detection.consumer.main import ingestion_event_validation_error, validate_ingestion_event
 from detection.consumer.main import process_event
-from detection.event_builder import build_detection_event
+from detection.event_builder import build_detection_event, traceability_errors
 from detection.rca.network import RCAEngine
 from detection.state.customer_intent import CustomerIntentStore
 from detection.state.degradation import DegradationStore
@@ -43,10 +43,34 @@ def test_validate_ingestion_event():
     assert validate_ingestion_event(make_event())
 
 
+def test_validation_reports_schema_leak():
+    event = make_event()
+    del event["trace_id"]
+    assert validate_ingestion_event(event) is False
+    assert "trace_id" in (ingestion_event_validation_error(event) or "")
+
+
+def test_validation_rejects_unknown_failure_code():
+    event = make_event(failure_code="NOT_A_CONTRACT_CODE")
+    assert validate_ingestion_event(event) is False
+    assert "invalid_failure_code" in (ingestion_event_validation_error(event) or "")
+
+
+def test_validation_rejects_empty_event_identity():
+    event = make_event()
+    event["event_id"] = None
+    assert validate_ingestion_event(event) is False
+    assert "event_id" in (ingestion_event_validation_error(event) or "")
+
+
 def test_failure_event_builds_detection():
     event = make_event()
     det = build_detection_event(event, {"failure": {"candidate": True}}, {"confidence": 0.9})
     assert det["transaction_id"] == event["transaction_id"]
+    assert det["event_id"] == event["event_id"]
+    assert det["detection_id"].startswith("det_")
+    assert traceability_errors(event, det) == []
+    assert det["detection_id"] == build_detection_event(event, {"failure": {"candidate": True}}, {"confidence": 0.9})["detection_id"]
 
 
 def test_customer_intent_scores():
@@ -72,8 +96,8 @@ def test_rca_known_topology():
     e = make_event()
     rca.observe(e)
     out = rca.explain(e)
-    assert out["root_cause"]["stage"] == "payment"
-    assert out["root_cause"]["confidence"] >= 0.55
+    assert out["root_cause"]["type"] == "unknown"
+    assert out["root_cause"]["confidence"] < 0.65
 
 
 def test_end_to_end_process_event_failure():
@@ -85,3 +109,21 @@ def test_end_to_end_process_event_failure():
     assert det is not None
     assert det["transaction_id"] == e["transaction_id"]
     assert det["metadata"]["root_cause"]["stage"] == "payment"
+
+
+def test_successful_source_is_not_converted_to_failure_detection():
+    event = make_event(status="success", failure_code=None, event_type="payment_succeeded")
+    det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore())
+    assert det is None
+
+
+def test_successful_source_with_degradation_anomaly_is_still_context_only(monkeypatch):
+    event = make_event(event_id="evt_success_anomaly", status="success", failure_code=None, event_type="payment_succeeded")
+    monkeypatch.setattr(
+        "detection.consumer.main.detect_degradation",
+        lambda *args, **kwargs: {"anomaly": True, "score": 0.99},
+    )
+    diagnostics = {}
+    det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore(), diagnostics=diagnostics)
+    assert det is None
+    assert diagnostics["decision"] == "skipped_source_context_only"

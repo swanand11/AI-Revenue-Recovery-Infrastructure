@@ -14,11 +14,7 @@ def run(cmd: list[str]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--services", nargs="*", default=[
-        "checkout-service",
-        "payment-service",
-        "authorization-service",
-        "capture-service",
-        "settlement-service",
+        "mock-pipeline",
         "detection-service",
         "splunk-forwarder",
         "splunk",

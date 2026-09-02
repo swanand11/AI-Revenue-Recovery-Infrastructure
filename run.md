@@ -1,262 +1,167 @@
-# Run Guide
+# Debug Run Guide
 
-This repository now includes:
+Start each layer in its own terminal. Keep the terminals open: every service prints the last event it produced, consumed, or forwarded.
 
-- Kafka ingestion services
-- the detection service
-- Splunk Enterprise in Docker
-- a live dashboard that queries Splunk directly
-
-## Prerequisites
-
-- Docker and Docker Compose
-- A local Python 3.12 environment if you want to run repo tests outside Docker
-
-## Start from scratch
-
-1. Build and start the full stack:
+## 0. Stop old containers
 
 ```bash
-docker compose up --build
+docker compose down
 ```
 
-2. Wait for these services to become healthy:
-
-- `kafka`
-- `kafka-init`
-- `splunk`
-- `detection-service`
-- the ingestion services
-
-3. Open Splunk Web:
-
-```text
-http://localhost:8000
-```
-
-Login:
-
-- username: `admin`
-- password: the value of `SPLUNK_PASSWORD` if set, otherwise `Changeme123!`
-
-4. Open the dashboard:
-
-```text
-http://localhost:8080
-```
-
-## What the system does
-
-1. The ingestion services publish events to:
-
-- `checkout.events`
-- `payment.events`
-- `authorization.events`
-- `capture.events`
-- `settlement.events`
-
-2. The payment lifecycle is the source of truth and must stay in this order:
-
-- `checkout`
-- `payment`
-- `auth`
-- `capture`
-- `settlement`
-
-3. The detection consumer reads those topics, computes:
-
-- failure signals
-- degradation signals
-- customer intent
-- graph-based RCA
-
-4. Detection emits to:
-
-- Kafka topic `detection.events`
-- Splunk HEC
-
-5. The dashboard shows:
-
-- a live ingestion table from the Kafka bridge snapshot
-- a live detection table from Splunk
-- traceability for a `transaction_id`
-- core details of an event
-- smart search filters
-- live summary stats
-- a dedicated mock event flow page
-
-## Recommended launch flow
-
-The mock services already emit fresh events every 5 seconds, so the normal validation path is to start the stack and watch the bridge and Splunk reflect those live events.
+## 1. Start Kafka
 
 ```bash
-./.venv/bin/python runner/e2e_runner.py --build
+docker compose up kafka kafka-init
 ```
 
-That command starts:
+Watch for a healthy broker and creation of these topics:
 
-- the mock ingestion services
-- Kafka and the topic bootstrap flow
-- the ingestion bridge
-- detection
-- the Kafka-to-Splunk forwarder
-- Splunk
-- the dashboard
+```text
+checkout.events
+payment.events
+authorization.events
+capture.events
+settlement.events
+detection.events
+recovery.events
+```
 
-You should see terminal debug output confirming the launcher started the mock services and bridge, and then the dashboard should reflect new ingestion rows from the topic snapshot and detection rows from Splunk.
+## 2. Start ingestion
 
-## Step-by-step debug flow
-
-Use these commands to isolate where data stops moving:
-
-1. Start only the mock ingestion services and watch their terminal logs:
+In a second terminal:
 
 ```bash
 ./.venv/bin/python runner/start_mocks.py --build
 ```
 
-2. Start Kafka and the detection consumer:
+This starts one authoritative `mock-pipeline`, not five independent transaction generators. Watch for `sent topic=... key=... event_id=... transaction_id=...`. If the transaction ID changes within one lifecycle, the leak is at the generator boundary.
+
+Choose a coherent scenario when needed:
+
+```bash
+MOCK_SCENARIO=normal ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=payment_failure ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=authorization_failure ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=capture_failure ./.venv/bin/python runner/start_mocks.py --build
+MOCK_SCENARIO=settlement_failure ./.venv/bin/python runner/start_mocks.py --build
+```
+
+Run one named transaction for dashboard reconstruction:
+
+```bash
+MOCK_TRANSACTION_ID=txn_trace_final_001 MOCK_SCENARIO=normal ./.venv/bin/python runner/start_mocks.py --build
+```
+
+## 3. Start the ingestion bridge
+
+In a third terminal:
+
+```bash
+docker compose up ingestion-bridge
+```
+
+Watch for:
+
+```text
+[ingestion-bridge] captured topic=... key=... event_id=... transaction_id=...
+```
+
+This Kafka-side feed powers the dashboard ingestion table. It replays available offsets so starting it after the mock pipeline does not hide the lifecycle.
+
+## 4. Start Detection
+
+In a fourth terminal:
 
 ```bash
 ./.venv/bin/python runner/start_detection.py --build
+docker compose logs -f detection-service
 ```
 
-3. Start Splunk and the Kafka-to-Splunk forwarder:
+Watch for this sequence for every event:
+
+```text
+consumed topic=... key=... event_id=... transaction_id=... transport_validation=passed
+published detection event_id=... transaction_id=...
+```
+
+The publisher writes the same Detection Event to both `detection.events` and `recovery.events`.
+
+The next line proves the Detection components ran:
+
+```text
+validation=passed ... failure_applied=True ... ewma_degradation_applied=True ml_applied=True ml_probability=... intent_applied=True rca_applied=True rca_component=... rca_confidence=...
+```
+
+If `validation=failed`, inspect `validation_error`. If `consumed` appears but `published` does not, inspect `reason`, `ml_probability`, and the RCA fields.
+
+## 5. Start Splunk and its forwarder
+
+In a fifth terminal:
 
 ```bash
 ./.venv/bin/python runner/start_splunk_forwarder.py --build
+docker compose logs -f splunk-forwarder
 ```
 
-4. Start the dashboard last:
+Watch for:
+
+```text
+Splunk forwarder listening on recovery.events
+FORWARDED topic=recovery.events key=... event_id=... transaction_id=...
+```
+
+Splunk is not on Detection’s Kafka hot path. Detection must continue if HEC is unavailable.
+
+## 6. Start the dashboard
+
+In a sixth terminal:
 
 ```bash
 ./.venv/bin/python runner/start_dashboard.py --build
 ```
 
-If the dashboard is still empty after step 4, the most likely leak points are:
+Open `http://localhost:8080`.
 
-- Kafka topic creation
-- the ingestion bridge not consuming the topic snapshot
-- detection not publishing to `detection.events`
-- the forwarder not consuming `detection.events`
-- Splunk HEC not accepting writes
+Dashboard views:
 
-## Reset and reseed Splunk
+- `/`: Kafka ingestion table, Recovery output table, search, and event JSON
+- `/flow`: newest events arriving in Splunk
+- `/lifecycle`: enter a `transaction_id` and check Kafka ingestion plus Recovery output across checkout → payment → auth → capture → settlement
 
-If you want to refresh the demo index, clear the live Splunk index and then replay the bundled mock data into Splunk HEC.
+Copy a transaction ID from the ingestion terminal or dashboard, open `/lifecycle`, and click `Load lifecycle`. The trace joins the Kafka bridge records with the Splunk Recovery record. Source ingestion and Detection output are shown separately even when they share the same `event_id`. A missing stage identifies the leak.
 
-```bash
-./.venv/bin/python runner/reseed_live_splunk.py \
-  --index revtrace \
-  --hec-url https://localhost:8088 \
-  --hec-token revtrace-hec-token \
-  --splunk-password Changeme123! \
-  --no-verify-cert
-```
-
-To seed only one mock transaction flow:
+## Useful checks
 
 ```bash
-./.venv/bin/python runner/simulate_case.py \
-  --hec-url https://localhost:8088 \
-  --hec-token revtrace-hec-token \
-  --index revtrace \
-  --no-verify-cert
+docker compose ps
+docker compose logs -f kafka
+docker compose logs -f ingestion-bridge
+docker compose logs -f detection-service
+docker compose logs -f splunk-forwarder
 ```
 
-The detection service also forwards live detection events to Splunk when these environment variables are present:
-
-- `SPLUNK_HEC_URL` (set to `https://localhost:8088` for host-side tooling, `https://splunk:8088` for in-container services)
-- `SPLUNK_HEC_TOKEN`
-- `SPLUNK_INDEX`
-- `SPLUNK_HEC_VERIFY_CERT` (`true` for trusted CA certificates, `false` for the repo’s local self-signed Splunk dev cert)
-
-## Generate historical data
+Check Kafka delivery and partition affinity with a deterministic batch:
 
 ```bash
-./.venv/bin/python detection/scripts/generate_historical_data.py \
-  --output /tmp/detection_history.json \
-  --count 200
+./.venv/bin/python scripts/generate_events.py --count 20 --seed 7 --bootstrap-server localhost:9092 --output /tmp/events_sent.json
+./.venv/bin/python scripts/verify_events.py --sent-events /tmp/events_sent.json --bootstrap-server localhost:9092 --report /tmp/events_report.json
 ```
 
-Precompute model metadata:
-
-```bash
-./.venv/bin/python detection/scripts/precompute_models.py \
-  --input /tmp/detection_history.json \
-  --output /tmp/detection_models.json
-```
-
-## Dashboard usage
-
-### 1. Traceability view
-
-Enter a `transaction_id` and click `Load Trace`.
-
-The dashboard will query Splunk for all matching ingestion and detection events, sort them by time, and display:
-
-- stage
-- event type
-- timestamp
-- raw JSON payload
-
-### 2. Smart query
-
-Fill in any of these fields:
-
-- `transaction_id`
-- `customer_id`
-- `stage`
-- `status`
-- `event_type`
-- `failure_code`
-
-Click `Search Splunk` to run a live query against the Splunk index.
-
-### 3. Live updates
-
-The dashboard refreshes summary stats every 5 seconds.
-
-## Exact commands
-
-### Start the full system
-
-```bash
-docker compose up --build
-```
-
-### Start only dashboard after the stack is up
-
-```bash
-docker compose up dashboard
-```
-
-### Run detection tests
+Run tests without Docker:
 
 ```bash
 ./.venv/bin/python -m pytest -q detection/tests
-```
-
-### Run repo tests
-
-```bash
 ./.venv/bin/python -m pytest -q
 ```
 
-### Run ingestion checks
+Reset Splunk demo data if needed:
 
 ```bash
-./.venv/bin/python smoke_test.py
-./.venv/bin/python smoke_validation.py
+./.venv/bin/python runner/reseed_live_splunk.py --index revtrace --hec-url https://localhost:8088 --hec-token revtrace-hec-token --splunk-password Changeme123! --no-verify-cert
 ```
 
-## Smoke flow
+Stop everything:
 
-1. Publish or wait for a mock ingestion event.
-2. Kafka receives it on the appropriate stage topic.
-3. Detection consumes it.
-4. Detection computes signals and RCA.
-5. Detection publishes to `detection.events`.
-6. Detection publishes the same event to `detection.events`.
-7. The Splunk forwarder consumes `detection.events` and writes to Splunk HEC.
-8. The dashboard queries Splunk and displays both traceability and details.
+```bash
+docker compose down
+```

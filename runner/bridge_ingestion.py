@@ -33,7 +33,7 @@ def main() -> None:
         *TOPICS,
         bootstrap_servers=bootstrap_servers.split(","),
         group_id="ingestion-bridge",
-        auto_offset_reset="latest",
+        auto_offset_reset="earliest",
         enable_auto_commit=True,
         value_deserializer=lambda value: json.loads(value.decode("utf-8")),
         key_deserializer=lambda key: key.decode("utf-8") if key else None,

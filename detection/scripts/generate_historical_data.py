@@ -4,7 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from detection.models.logistic_regression import synthetic_history
 
 
 def main() -> None:
@@ -14,22 +19,17 @@ def main() -> None:
     parser.add_argument("--count", type=int, default=200)
     args = parser.parse_args()
     rng = random.Random(args.seed)
+    base = synthetic_history()
     rows = []
-    methods = ["UPI", "RuPay", "Visa", "Mastercard", "Net Banking"]
-    providers = ["gateway-a", "gateway-b", "gateway-c"]
     for i in range(args.count):
-        rows.append(
-            {
-                "customer_id": f"customer_{i:05d}",
-                "payment_method": methods[i % len(methods)],
-                "provider": providers[i % len(providers)],
-                "success": rng.random() > 0.2,
-                "failure_code": None if rng.random() > 0.2 else "TIMEOUT",
-            }
-        )
+        source = base[i % len(base)].copy()
+        source["observation_id"] = f"obs_{args.seed}_{i:04d}"
+        source["customer_id"] = f"customer_{i:05d}"
+        source["failed"] = int(source["failed"] if i % 5 else rng.random() > 0.5)
+        source["successful"] = source["attempts"] - source["failed"]
+        rows.append(source)
     Path(args.output).write_text(json.dumps(rows, indent=2))
 
 
 if __name__ == "__main__":
     main()
-

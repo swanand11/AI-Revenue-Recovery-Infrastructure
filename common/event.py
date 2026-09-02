@@ -9,6 +9,7 @@ from common.ids import TransactionContext, generate_event_id, generate_span_id
 VALID_STATUSES = {"success", "failure", "unknown"}
 VALID_FAILURE_CODES = {
     "TIMEOUT",
+    "ISSUER_TIMEOUT",
     "GATEWAY_ERROR",
     "ISSUER_DECLINED",
     "INSUFFICIENT_FUNDS",

@@ -47,11 +47,11 @@ def generate_case_events() -> list[dict]:
     parent_span_id = None
     steps = [
         ("checkout-service", "checkout_started", "unknown", None),
+        ("checkout-service", "checkout_completed", "success", None),
         ("payment-service", "payment_created", "unknown", None),
+        ("payment-service", "payment_succeeded", "success", None),
         ("authorization-service", "authorization_requested", "unknown", None),
-        ("authorization-service", "authorization_failed", "failure", "TIMEOUT"),
-        ("payment-service", "payment_failed", "failure", "GATEWAY_ERROR"),
-        ("capture-service", "capture_failed", "failure", "SERVICE_ERROR"),
+        ("authorization-service", "authorization_failed", "failure", "ISSUER_TIMEOUT"),
     ]
     customer_score = 0.92
     degradation_score = 0.18

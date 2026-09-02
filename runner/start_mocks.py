@@ -7,11 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MOCK_SERVICES = [
-    "checkout-service",
-    "payment-service",
-    "authorization-service",
-    "capture-service",
-    "settlement-service",
+    "mock-pipeline",
 ]
 
 
@@ -28,7 +24,7 @@ def main() -> None:
         cmd.append("-d")
     cmd.extend(MOCK_SERVICES)
 
-    print("Starting mock ingestion services. Watch the service logs for sent events.", flush=True)
+    print("Starting the authoritative mock pipeline. Watch its logs for one coherent transaction lifecycle.", flush=True)
     subprocess.run(cmd, check=True, cwd=ROOT)
 
 

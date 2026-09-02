@@ -14,3 +14,9 @@ def test_smart_query_contains_filters():
     assert 'search index=revtrace' in query
     assert 'stage="payment"' in query
     assert 'status="failure"' in query
+
+
+def test_lifecycle_query_contains_transaction_id():
+    from dashboard.splunk_client import build_lifecycle_query
+
+    assert 'transaction_id="txn_123"' in build_lifecycle_query("revtrace", "txn_123")

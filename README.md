@@ -31,6 +31,7 @@ It preserves the original Kafka keying convention (`transaction_id`), calculates
 - `splunk` runs locally in Docker with persisted `/opt/splunk/etc` and `/opt/splunk/var` volumes.
 - `splunk-seed` loads the bundled synthetic dataset into Splunk through HEC.
 - `ingestion-bridge` snapshots Kafka ingestion topics into a shared local store so the dashboard can render live ingestion tables without pretending the data already lives in Splunk.
+- `mock-pipeline` is the active demo producer. It creates one transaction context, propagates it through the lifecycle, and stops a configured scenario at its failure point. The older per-service generators are available only under the `legacy` Compose profile.
 
 ### Historical data and model artifacts
 

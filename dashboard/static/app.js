@@ -22,29 +22,34 @@ function escapeHtml(value) {
 }
 
 function isDetectionEvent(item) {
-  return item.sourcetype === 'revtrace:detection' || item.stage === 'detection' || Boolean(item.metadata?.root_cause);
+  return Boolean(item.detection_id) || item.kafka_topic === 'recovery.events' || item.sourcetype === 'revtrace:detection' || item.stage === 'detection' || Boolean(item.metadata?.signals);
 }
 
 function renderTable(items, kind) {
   const normalized = items.map(parseRecord);
   if (!normalized.length) {
     return kind === 'ingestion'
-      ? '<div class="empty-state">No ingestion records in Splunk yet. Ingestion events live in Kafka topics unless you bridge them into the index.</div>'
+      ? '<div class="empty-state">No Kafka ingestion records captured yet.</div>'
       : '<div class="empty-state">No live records yet.</div>';
   }
   const rows = normalized.map((item) => {
     const status = String(item.status || '').toLowerCase();
     const anomaly = Boolean(item.metadata?.signals?.degradation?.anomaly || item.metadata?.signals?.failure || item.metadata?.root_cause);
-    const rowClass = kind === 'detection' && (status === 'failure' || anomaly) ? 'failure' : '';
+    const rowClass = kind === 'detection' && status === 'failure' ? 'failure' : '';
+    const rootCause = item.metadata?.root_cause?.component || item.metadata?.root_cause?.provider || '';
+    const mlProbability = item.metadata?.signals?.degradation_model?.probability;
+    const nature = kind === 'detection' ? 'Detection output → Recovery' : 'Ingestion event';
     return `
       <tr class="${rowClass}" data-record="${escapeHtml(JSON.stringify(item))}">
         <td>${escapeHtml(item._time || item.timestamp || '')}</td>
-        <td>${escapeHtml(item.stage || item.sourcetype || '')}</td>
+        <td>${escapeHtml(item.kafka_topic || item.stage || item.sourcetype || '')}</td>
         <td>${escapeHtml(item.event_type || '')}</td>
         <td>${escapeHtml(item.status || '')}</td>
         <td>${escapeHtml(item.transaction_id || '')}</td>
         <td>${escapeHtml(item.customer_id || '')}</td>
         <td>${escapeHtml(item.failure_code || item.metadata?.root_cause?.failure_code || item.metadata?.root_cause?.stage || '')}</td>
+        <td>${escapeHtml(nature)}</td>
+        <td>${escapeHtml(rootCause || (mlProbability === undefined ? '' : `ML ${mlProbability}`))}</td>
       </tr>
     `;
   }).join('');
@@ -55,12 +60,14 @@ function renderTable(items, kind) {
         <thead>
           <tr>
             <th>Time</th>
-            <th>Stage</th>
+            <th>Stage / Topic</th>
             <th>Event</th>
             <th>Status</th>
             <th>Transaction</th>
             <th>Customer</th>
             <th>Failure</th>
+            <th>Nature</th>
+            <th>RCA / ML</th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -78,7 +85,7 @@ function renderTraceLane(items) {
     const detection = isDetectionEvent(item);
     const status = String(item.status || '').toLowerCase();
     const anomaly = Boolean(item.metadata?.signals?.degradation?.anomaly || item.metadata?.signals?.failure || item.metadata?.root_cause);
-    const tone = detection && (status === 'failure' || anomaly) ? 'failure' : detection ? 'detection' : 'ingestion';
+    const tone = detection && status === 'failure' ? 'failure' : detection && anomaly ? 'detection-anomaly' : detection ? 'detection' : status === 'failure' ? 'ingestion-failure' : 'ingestion';
     return `
       <article class="trace-card ${tone}">
         <div class="trace-top">
@@ -88,6 +95,8 @@ function renderTraceLane(items) {
         <div class="trace-title">${escapeHtml(item.event_type || item.stage || 'event')}</div>
         <div class="trace-meta">${escapeHtml(item.timestamp || item._time || '')}</div>
         <div class="trace-sub">${escapeHtml(item.service || item.sourcetype || '')}</div>
+        <div class="trace-sub">${escapeHtml(item.detection_id ? `Source: ${item.metadata?.source_event_type || item.event_type}` : 'Source ingestion event')}</div>
+        <div class="trace-sub">${escapeHtml(item.status || '')}${item.failure_code ? ` · ${escapeHtml(item.failure_code)}` : ''}</div>
         <div class="trace-sub">${escapeHtml(item.transaction_id || '')}</div>
       </article>
     `;

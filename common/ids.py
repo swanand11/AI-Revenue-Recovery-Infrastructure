@@ -3,6 +3,7 @@ from __future__ import annotations
 import random
 import time
 import uuid
+import hashlib
 from dataclasses import dataclass
 
 
@@ -45,6 +46,13 @@ def generate_cycle_transaction_context() -> TransactionContext:
 
 def generate_event_id() -> str:
     return f"evt_{uuid.uuid4().hex[:12]}"
+
+
+def generate_detection_id(source_event_id: str | None = None) -> str:
+    if source_event_id:
+        digest = hashlib.sha256(source_event_id.encode("utf-8")).hexdigest()[:12]
+        return f"det_{digest}"
+    return f"det_{uuid.uuid4().hex[:12]}"
 
 
 def generate_span_id() -> str:

@@ -24,4 +24,5 @@ def test_detection_event_to_kafka_topic(monkeypatch):
     DetectionKafkaPublisher.publish(pub, event)
     assert pub.producer.sent[0][0] == "detection.events"
     assert pub.producer.sent[0][1] == "txn_1"
-
+    assert pub.producer.sent[1][0] == "recovery.events"
+    assert pub.producer.sent[1][1] == "txn_1"

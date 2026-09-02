@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from detection.publisher.splunk import SplunkHeCAdapter, default_verify_cert_for_url, parse_bool
 
-TOPIC = "detection.events"
+TOPIC = "recovery.events"
 
 
 def main() -> None:
@@ -38,7 +38,7 @@ def main() -> None:
 
     print(f"Splunk forwarder listening on {TOPIC}", flush=True)
     for message in consumer:
-        splunk.emit(message.value)
+        splunk.emit(message.value, fields={"kafka_topic": message.topic, "event_nature": "detection_output"})
         print(
             f"FORWARDED topic={message.topic} key={message.key} "
             f"event_id={message.value.get('event_id')} transaction_id={message.value.get('transaction_id')}",
