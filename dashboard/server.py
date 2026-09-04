@@ -1,7 +1,12 @@
 from __future__ import annotations
 
-import json
+import sys
 import os
+import json
+# Ensure the top-level project directory is on PYTHONPATH so that the 'recovery' package can be imported
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -139,6 +144,40 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 txn = parse_qs(parsed.query).get("transaction_id", [""])[0]
                 items = combined_trace(txn) if txn else self.splunk.recent_events(50)
                 return json_response(self, {"items": items})
+            if parsed.path == "/profile":
+                text_response(self, (STATIC_DIR / "profile.html").read_bytes())
+                return
+            if parsed.path == "/profile.js":
+                text_response(self, (STATIC_DIR / "profile.js").read_bytes(), "application/javascript; charset=utf-8")
+                return
+            if parsed.path == "/api/profile":
+                customer_id = parse_qs(parsed.query).get("customer_id", [""])[0]
+                if not customer_id:
+                    return json_response(self, {"error": "customer_id required"}, status=HTTPStatus.BAD_REQUEST)
+                query = f'index={self.splunk.config.index} customer_id="{customer_id}" | sort 0 _time'
+                splunk_error = False
+                try:
+                    raw_history = self.splunk.export_search(query, earliest_time="-30d")
+                except Exception:
+                    raw_history = []
+                    splunk_error = True
+                from recovery.agents.intent.scoring import calculate_intent, normalise_events
+                normalised, _parse_errors = normalise_events(raw_history)
+                intent_data = calculate_intent(raw_history, _splunk_error=splunk_error)
+                return json_response(self, {"history": normalised, "intent": intent_data})
+            if parsed.path == "/api/recovery":
+                txn = parse_qs(parsed.query).get("transaction_id", [""])[0]
+                if not txn:
+                    return json_response(self, {"error": "transaction_id required"}, status=HTTPStatus.BAD_REQUEST)
+                import urllib.request
+                try:
+                    req = urllib.request.Request(f"http://recovery-api:8090/recovery/{txn}")
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        return json_response(self, json.loads(resp.read().decode("utf-8")))
+                except urllib.error.HTTPError as e:
+                    return json_response(self, {"error": "not_found"}, status=e.code)
+                except Exception as e:
+                    return json_response(self, {"error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
             json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
         except Exception as exc:  # pragma: no cover - runtime integration
             json_response(self, {"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)

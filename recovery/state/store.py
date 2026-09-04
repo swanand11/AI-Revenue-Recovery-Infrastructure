@@ -9,6 +9,7 @@ from recovery.models.contracts import RecoveryState, RecoveryStatus
 class StateStore(Protocol):
     def get(self, transaction_id: str) -> RecoveryState | None: ...
     def upsert_candidate(self, event: dict[str, Any]) -> tuple[RecoveryState, bool]: ...
+    def save_beliefs(self, transaction_id: str, beliefs: list[Any]) -> None: ...
     def close(self) -> None: ...
 
 
@@ -17,7 +18,10 @@ def _state_from_dict(value: dict[str, Any]) -> RecoveryState:
     value["state_version"] = int(value["state_version"])
     value["recovery_attempts"] = int(value.get("recovery_attempts", 0))
     value["status"] = RecoveryStatus(value["status"])
-    return RecoveryState(**value)
+    beliefs = value.pop("agent_beliefs", [])
+    state = RecoveryState(**value)
+    object.__setattr__(state, "agent_beliefs", beliefs)
+    return state
 
 
 class MemoryStateStore:
@@ -52,6 +56,14 @@ class MemoryStateStore:
         self.states[transaction_id] = state
         self.event_ids.add(event_id)
         return state, True
+
+    def save_beliefs(self, transaction_id: str, beliefs: list[Any]) -> None:
+        state = self.states.get(transaction_id)
+        if state:
+            # We must mutate it for tests, though dataclass is frozen.
+            # Easiest is to replace it or since it's just a dict representation in UI, we should add agent_beliefs to RecoveryState
+            # Let's just bypass frozen
+            object.__setattr__(state, "agent_beliefs", [b if isinstance(b, dict) else b.__dict__ for b in beliefs])
 
     def close(self) -> None:
         return None
@@ -102,6 +114,20 @@ class RedisStateStore:
             self.client.set(key, payload)
         self.client.sadd(event_key, event["event_id"])
         return state, True
+
+    def save_beliefs(self, transaction_id: str, beliefs: list[Any]) -> None:
+        state = self.get(transaction_id)
+        if state:
+            # We can use asdict to convert to dict
+            from dataclasses import asdict
+            d = state.to_dict()
+            d["agent_beliefs"] = [b if isinstance(b, dict) else asdict(b) for b in beliefs]
+            payload = json.dumps(d, separators=(",", ":"))
+            key = self._key(transaction_id)
+            if self.ttl_seconds:
+                self.client.setex(key, self.ttl_seconds, payload)
+            else:
+                self.client.set(key, payload)
 
     def close(self) -> None:
         self.client.close()

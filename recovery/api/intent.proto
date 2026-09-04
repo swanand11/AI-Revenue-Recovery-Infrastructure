@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package intent;
+
+message IntentContext {
+    string customer_id = 1;
+    string transaction_id = 2;
+    int32 state_version = 3;
+    string trace_id = 4;
+    map<string, string> current_failure = 5;
+}
+
+message BeliefEvidence {
+    double intent_score = 1;
+    string intent_level = 2;
+    int32 historical_transactions = 3;
+    int32 successful_transactions = 4;
+    int32 failed_transactions = 5;
+    int32 checkout_failures = 6;
+    int32 payment_failures = 7;
+    int32 retries = 8;
+    int32 authorization_failures = 9;
+    int32 capture_failures = 10;
+    int32 settlement_failures = 11;
+    string history_status = 12;
+    double confidence = 13;
+    int32 raw_event_count = 14;
+    int32 parsed_event_count = 15;
+    int32 parse_error_count = 16;
+}
+
+message BeliefResponse {
+    string belief_id = 1;
+    string agent_id = 2;
+    string agent_version = 3;
+    string transaction_id = 4;
+    int32 state_version = 5;
+    string recommendation = 6;
+    double confidence = 7;
+    string reason_code = 8;
+    string timestamp = 9;
+    BeliefEvidence evidence = 10;
+}
+
+service IntentAgentService {
+    rpc Evaluate (IntentContext) returns (BeliefResponse);
+}

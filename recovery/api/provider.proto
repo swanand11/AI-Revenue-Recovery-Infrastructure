@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package provider;
+
+message ProviderContext {
+    string customer_id = 1;
+    string transaction_id = 2;
+    int32 state_version = 3;
+    string trace_id = 4;
+    map<string, string> current_failure = 5;
+    map<string, string> historical_evidence = 6;
+    map<string, string> provider_metadata = 7;
+}
+
+message ProviderBeliefEvidence {
+    string payment_method = 1;
+    string current_provider = 2;
+    string failure_code = 3;
+    double provider_failure_rate = 4;
+    double provider_timeout_rate = 5;
+    double provider_degradation_probability = 6;
+    bool alternative_provider_available = 7;
+    string alternative_provider = 8;
+}
+
+message ProviderBeliefResponse {
+    string belief_id = 1;
+    string agent_id = 2;
+    string agent_version = 3;
+    string transaction_id = 4;
+    int32 state_version = 5;
+    string recommendation = 6;
+    double confidence = 7;
+    string reason_code = 8;
+    string timestamp = 9;
+    ProviderBeliefEvidence evidence = 10;
+}
+
+service ProviderAgentService {
+    rpc Evaluate (ProviderContext) returns (ProviderBeliefResponse);
+}

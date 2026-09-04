@@ -105,9 +105,6 @@ published detection event_id=... transaction_id=...
 
 The publisher writes the same Detection Event to both `detection.events` and `recovery.events`.
 
-The Recovery service consumes `recovery.events` and acknowledges candidates without executing
-recovery actions. Inspect state with `curl http://localhost:8090/recovery/<transaction_id>`.
-
 The next line proves the Detection components ran:
 
 ```text
@@ -116,9 +113,30 @@ validation=passed ... failure_applied=True ... ewma_degradation_applied=True ml_
 
 If `validation=failed`, inspect `validation_error`. If `consumed` appears but `published` does not, inspect `reason`, `ml_probability`, and the RCA fields.
 
-## 5. Start Splunk and its forwarder
+## 5. Start the Recovery Layer
 
 In a fifth terminal:
+
+```bash
+docker compose up -d recovery-api intent-agent recovery-service
+docker compose logs -f recovery-service
+```
+
+The Recovery service consumes `recovery.events`, calls the `intent-agent` via gRPC to evaluate customer history against Splunk, and generates Beliefs. It acknowledges candidates without executing final recovery actions. 
+
+Watch for:
+```text
+[recovery-service] acknowledged transaction_id=... state_version=... duplicate=... beliefs_generated=1
+```
+
+Inspect state with:
+```bash
+curl http://localhost:8090/recovery/<transaction_id>
+```
+
+## 6. Start Splunk and its forwarder
+
+In a sixth terminal:
 
 ```bash
 ./.venv/bin/python runner/start_splunk_forwarder.py --build
@@ -134,9 +152,9 @@ FORWARDED topic=recovery.events key=... event_id=... transaction_id=...
 
 Splunk is not on Detection’s Kafka hot path. Detection must continue if HEC is unavailable.
 
-## 6. Start the dashboard
+## 7. Start the dashboard
 
-In a sixth terminal:
+In a seventh terminal:
 
 ```bash
 ./.venv/bin/python runner/start_dashboard.py --build
@@ -149,6 +167,7 @@ Dashboard views:
 - `/`: Kafka ingestion table, Recovery output table, search, and event JSON
 - `/flow`: newest events arriving in Splunk
 - `/lifecycle`: enter a `transaction_id` and check Kafka ingestion plus Recovery output across checkout → payment → auth → capture → settlement
+- `/profile`: enter a `customer_id` to view Intent Profiler and analyze intent scoring, or enter a `transaction_id` in the Recovery Assessment to view independent agent beliefs.
 
 Copy a transaction ID from the ingestion terminal or dashboard, open `/lifecycle`, and click `Load lifecycle`. The trace joins the Kafka bridge records with the Splunk Recovery record. Source ingestion and Detection output are shown separately even when they share the same `event_id`. A missing stage identifies the leak.
 

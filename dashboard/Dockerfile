@@ -6,6 +6,7 @@ ENV PYTHONPATH=/app
 
 COPY common ./common
 COPY dashboard ./dashboard
+COPY recovery ./recovery
 COPY runner ./runner
 
 EXPOSE 8080

@@ -85,14 +85,33 @@ def run() -> None:
                     if error:
                         print(f"[recovery-service] rejected event error={error}", flush=True)
                         continue
-                    state, changed = coordinator.receive_candidate(event)
+                    state, changed, beliefs = coordinator.receive_candidate(event)
+                    store.save_beliefs(state.transaction_id, beliefs)
                     ack = acknowledgement(event, state, duplicate=not changed)
                     wal.write_event({"event_type": "recovery_audit", "record": ack})
+                    
+                    for belief in beliefs:
+                        wal.write_event({
+                            "event_type": "belief_generated",
+                            "record": {
+                                "belief_id": belief.belief_id,
+                                "agent_id": belief.agent_id,
+                                "agent_version": belief.agent_version,
+                                "transaction_id": belief.transaction_id,
+                                "state_version": belief.state_version,
+                                "recommendation": belief.recommendation.value,
+                                "confidence": belief.confidence,
+                                "reason_code": belief.reason_code,
+                                "timestamp": belief.timestamp,
+                                "evidence": belief.evidence,
+                            }
+                        })
+                    
                     producer.send(ACK_TOPIC, key=state.transaction_id, value=ack)
                     producer.flush()
                     print(
                         f"[recovery-service] acknowledged transaction_id={state.transaction_id} "
-                        f"state_version={state.state_version} duplicate={not changed} recovery_executed=False",
+                        f"state_version={state.state_version} duplicate={not changed} beliefs_generated={len(beliefs)}",
                         flush=True,
                     )
             except Exception as exc:

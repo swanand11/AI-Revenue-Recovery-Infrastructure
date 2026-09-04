@@ -16,8 +16,8 @@ def candidate(event_id="evt_1"):
 
 def test_candidate_is_idempotent_and_versions_deterministically():
     coordinator = RecoveryCoordinator(MemoryStateStore())
-    first, changed = coordinator.receive_candidate(candidate())
-    duplicate, changed_again = coordinator.receive_candidate(candidate())
+    first, changed, _ = coordinator.receive_candidate(candidate())
+    duplicate, changed_again, _ = coordinator.receive_candidate(candidate())
 
     assert changed is True
     assert changed_again is False
@@ -27,17 +27,17 @@ def test_candidate_is_idempotent_and_versions_deterministically():
 
 def test_new_event_for_transaction_increments_state_version():
     coordinator = RecoveryCoordinator(MemoryStateStore())
-    first, _ = coordinator.receive_candidate(candidate("evt_1"))
-    second, _ = coordinator.receive_candidate(candidate("evt_2"))
+    first, _, _ = coordinator.receive_candidate(candidate("evt_1"))
+    second, _, _ = coordinator.receive_candidate(candidate("evt_2"))
     assert first.state_version == 1
     assert second.state_version == 2
 
 
 def test_replayed_older_event_does_not_increment_state_version():
     coordinator = RecoveryCoordinator(MemoryStateStore())
-    first, _ = coordinator.receive_candidate(candidate("evt_1"))
+    first, _, _ = coordinator.receive_candidate(candidate("evt_1"))
     coordinator.receive_candidate(candidate("evt_2"))
-    replay, changed = coordinator.receive_candidate(candidate("evt_1"))
+    replay, changed, _ = coordinator.receive_candidate(candidate("evt_1"))
     assert changed is False
     assert first.state_version == 1
     assert replay.state_version == 2
