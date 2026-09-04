@@ -26,7 +26,9 @@ class WeightedConsensus:
   for b in beliefs:
    s,r=self.validator.validate(b,transaction_id,state_version);rs.append({'agent_id':b.agent_id,'belief_id':b.belief_id,'recommendation':b.recommendation.value,'confidence':b.confidence,'status':s,'reason':r});valid+= [b] if s=='PARTICIPATING' else []
   total=sum(self.c.agent_weights[b.agent_id] for b in valid);support=defaultdict(float);counts=Counter(b.recommendation for b in valid)
-  for b in valid:support[b.recommendation]+=self.c.agent_weights[b.agent_id]*b.confidence
+  for b in valid:
+   contribution=self.c.agent_weights[b.agent_id]*b.confidence
+   support[b.recommendation]+=contribution
   ratios={a.value:(support[a]/total if total else 0) for a in self.safety}
   if len(valid)<self.c.min_valid_agents:decision,status=Recommendation.DO_NOTHING,'INSUFFICIENT_EVIDENCE'
   elif len(counts)==1 and Recommendation.DO_NOTHING in counts:decision,status=Recommendation.DO_NOTHING,'UNANIMOUS_DO_NOTHING'

@@ -1,49 +1,104 @@
+from __future__ import annotations
+
 import concurrent.futures
-import grpc
+import json
 import os
+from dataclasses import asdict
 from typing import Any
 
-from recovery.api import intent_pb2, intent_pb2_grpc
-from recovery.api import provider_pb2, provider_pb2_grpc
-from recovery.models.contracts import Belief, Recommendation, RecoveryState
+from common.wal import WalWriter
+from recovery.agents.economics import evaluate_economics
+from recovery.agents.risk import evaluate_risk
+from recovery.agents.transaction import evaluate_transaction
+from recovery.config import RecoveryConfig
+from recovery.coordinator.pipeline import RecoveryPipeline
+from recovery.models.contracts import Belief, Recommendation, RecoveryState, RecoveryStatus, utc_now
 from recovery.state.store import StateStore
+
+try:
+    import grpc
+    from recovery.api import intent_pb2, intent_pb2_grpc
+    from recovery.api import provider_pb2, provider_pb2_grpc
+except ModuleNotFoundError:
+    grpc = None
+    intent_pb2 = intent_pb2_grpc = provider_pb2 = provider_pb2_grpc = None
 
 
 class RecoveryCoordinator:
-    """Acknowledges candidates and calls agents."""
+    """Coordinates Phase 1 recovery assessment without executing actions."""
 
-    def __init__(self, state_store: StateStore) -> None:
+    def __init__(
+        self,
+        state_store: StateStore,
+        *,
+        config: RecoveryConfig | None = None,
+        wal: WalWriter | None = None,
+    ) -> None:
         self.state_store = state_store
-        agent_url = os.environ.get("INTENT_AGENT_URL", "localhost:50051")
-        self.intent_channel = grpc.insecure_channel(agent_url)
-        self.intent_stub = intent_pb2_grpc.IntentAgentServiceStub(self.intent_channel)
-        
-        provider_url = os.environ.get("PROVIDER_AGENT_URL", "localhost:50052")
-        self.provider_channel = grpc.insecure_channel(provider_url)
-        self.provider_stub = provider_pb2_grpc.ProviderAgentServiceStub(self.provider_channel)
+        self.config = config or RecoveryConfig()
+        self.pipeline = RecoveryPipeline(self.config)
+        self.wal = wal or WalWriter(os.environ.get("RECOVERY_WAL_PATH", "wal/events.jsonl"))
+
+        self.intent_channel = None
+        self.intent_stub = None
+        self.provider_channel = None
+        self.provider_stub = None
+        if grpc is not None:
+            agent_url = os.environ.get("INTENT_AGENT_URL", "localhost:50051")
+            self.intent_channel = grpc.insecure_channel(agent_url)
+            self.intent_stub = intent_pb2_grpc.IntentAgentServiceStub(self.intent_channel)
+
+            provider_url = os.environ.get("PROVIDER_AGENT_URL", "localhost:50052")
+            self.provider_channel = grpc.insecure_channel(provider_url)
+            self.provider_stub = provider_pb2_grpc.ProviderAgentServiceStub(self.provider_channel)
 
     def receive_candidate(self, event: dict[str, Any]) -> tuple[RecoveryState, bool, list[Belief]]:
         state, created = self.state_store.upsert_candidate(event)
+        self._commit("candidate_received", state, {"created": created, "event_id": event.get("event_id")})
+        if str(event.get("status") or "").lower() in {"success", "succeeded", "captured", "settled", "recovered"}:
+            return state, created, []
+        if not created:
+            return state, False, state.agent_beliefs or []  # type: ignore[return-value]
+
         beliefs = self.gather_beliefs(state, event)
-        return state, created, beliefs
+        self.state_store.save_beliefs(state.transaction_id, beliefs)
+        self._commit("beliefs_collected", state, {"belief_count": len(beliefs)})
+        if not event.get("stage") and not event.get("failure_code"):
+            return state, True, beliefs
+
+        pipeline_result = self.pipeline.run(state.transaction_id, state.state_version, beliefs, self._context(state, event))
+        final_state = self.state_store.apply_recovery_result(state.transaction_id, pipeline_result)
+        self._commit("recovery_assessed", final_state, pipeline_result)
+        return final_state, True, beliefs
 
     def gather_beliefs(self, state: RecoveryState, event: dict[str, Any]) -> list[Belief]:
-        beliefs = []
+        self._commit("agents_evaluating", state, {"agent_count": 5})
+        beliefs: list[Belief] = []
+        jobs = {
+            "intent-agent": lambda: self._call_intent_agent(state, event),
+            "provider-agent": lambda: self._call_provider_agent(state, event),
+            "transaction-agent": lambda: evaluate_transaction(state, event),
+            "economics-agent": lambda: evaluate_economics(state, event, self.config),
+            "risk-agent": lambda: evaluate_risk(state, event, self.config),
+        }
+
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            future_to_agent = {
-                executor.submit(self._call_intent_agent, state, event): "intent",
-                executor.submit(self._call_provider_agent, state, event): "provider",
-            }
+            future_to_agent = {executor.submit(call): agent_id for agent_id, call in jobs.items()}
             for future in concurrent.futures.as_completed(future_to_agent):
+                agent_id = future_to_agent[future]
                 try:
                     belief = future.result()
                     if belief:
                         beliefs.append(belief)
+                        self._commit("belief_recorded", state, {"agent_id": agent_id, "belief": asdict(belief)})
                 except Exception as exc:
-                    print(f"Agent {future_to_agent[future]} generated an exception: {exc}")
+                    self._commit("agent_failed", state, {"agent_id": agent_id, "error": str(exc)})
         return beliefs
 
     def _call_intent_agent(self, state: RecoveryState, event: dict[str, Any]) -> Belief | None:
+        if self.intent_stub is None:
+            self._commit("agent_unavailable", state, {"agent_id": "intent-agent", "error": "grpc_unavailable"})
+            return None
         context = intent_pb2.IntentContext(
             customer_id=state.customer_id or "",
             transaction_id=state.transaction_id,
@@ -51,11 +106,11 @@ class RecoveryCoordinator:
             trace_id=state.trace_id or "",
             current_failure={
                 "stage": event.get("stage", ""),
-                "failure_code": event.get("failure_code", "")
-            }
+                "failure_code": event.get("failure_code", ""),
+            },
         )
         try:
-            response = self.intent_stub.Evaluate(context, timeout=10.0)
+            response = self.intent_stub.Evaluate(context, timeout=2.0)
             return Belief(
                 belief_id=response.belief_id,
                 agent_id=response.agent_id,
@@ -83,25 +138,26 @@ class RecoveryCoordinator:
                     "raw_event_count": response.evidence.raw_event_count,
                     "parsed_event_count": response.evidence.parsed_event_count,
                     "parse_error_count": response.evidence.parse_error_count,
-                }
+                },
             )
-        except grpc.RpcError as e:
-            print(f"Intent Agent RPC failed: {e}")
+        except grpc.RpcError as exc:
+            self._commit("agent_unavailable", state, {"agent_id": "intent-agent", "error": str(exc)})
             return None
 
     def _call_provider_agent(self, state: RecoveryState, event: dict[str, Any]) -> Belief | None:
-        import json
+        if self.provider_stub is None:
+            self._commit("agent_unavailable", state, {"agent_id": "provider-agent", "error": "grpc_unavailable"})
+            return None
         metadata = event.get("metadata", {})
-        signals = metadata.get("signals", {})
-        root_cause = metadata.get("root_cause", {})
-        
+        signals = metadata.get("signals", event.get("signals", {}))
+        root_cause = metadata.get("root_cause", event.get("root_cause", {}))
         provider_metadata = {
             "payment_method": metadata.get("payment_method", event.get("payment_method", "")),
             "provider": metadata.get("provider", metadata.get("payment_provider", event.get("payment_provider", ""))),
             "signals": json.dumps(signals),
-            "root_cause": json.dumps(root_cause)
+            "root_cause": json.dumps(root_cause),
         }
-        
+
         context = provider_pb2.ProviderContext(
             customer_id=state.customer_id or "",
             transaction_id=state.transaction_id,
@@ -109,12 +165,12 @@ class RecoveryCoordinator:
             trace_id=state.trace_id or "",
             current_failure={
                 "stage": event.get("stage", ""),
-                "failure_code": event.get("failure_code", "")
+                "failure_code": event.get("failure_code", ""),
             },
-            provider_metadata=provider_metadata
+            provider_metadata=provider_metadata,
         )
         try:
-            response = self.provider_stub.Evaluate(context, timeout=10.0)
+            response = self.provider_stub.Evaluate(context, timeout=2.0)
             return Belief(
                 belief_id=response.belief_id,
                 agent_id=response.agent_id,
@@ -134,8 +190,52 @@ class RecoveryCoordinator:
                     "provider_degradation_probability": response.evidence.provider_degradation_probability,
                     "alternative_provider_available": response.evidence.alternative_provider_available,
                     "alternative_provider": response.evidence.alternative_provider,
-                }
+                },
             )
-        except grpc.RpcError as e:
-            print(f"Provider Agent RPC failed: {e}")
+        except grpc.RpcError as exc:
+            self._commit("agent_unavailable", state, {"agent_id": "provider-agent", "error": str(exc)})
             return None
+
+    def _context(self, state: RecoveryState, event: dict[str, Any]) -> dict[str, Any]:
+        metadata = event.get("metadata", {})
+        current_status = str(state.current_transaction_status or event.get("status") or "").lower()
+        terminal_statuses = {"success", "succeeded", "captured", "settled", "recovered", "captured_success", "settled_success"}
+        return {
+            "transaction_id": state.transaction_id,
+            "state_version": state.state_version,
+            "stage": event.get("stage"),
+            "transaction_status": current_status,
+            "failure_code": event.get("failure_code"),
+            "amount": float(event.get("amount") or event.get("amount_at_risk") or 0.0),
+            "currency": event.get("currency", "INR"),
+            "recovery_attempts": state.recovery_attempts,
+            "current_provider": metadata.get("provider", event.get("payment_provider", "")),
+            "target_provider": event.get("target_provider") or self._alternative_provider(metadata.get("provider", event.get("payment_provider", ""))),
+            "expected_roi": event.get("expected_roi"),
+            "already_successful": current_status in terminal_statuses,
+            "already_recovered": state.status in {RecoveryStatus.RECOVERED, RecoveryStatus.COMPLETED},
+            "current_stage": state.current_stage or event.get("stage"),
+            "lifecycle_events": state.lifecycle_events,
+            "synthetic_success": event.get("synthetic_success", True),
+            "synthetic_verified": event.get("synthetic_verified", True),
+        }
+
+    @staticmethod
+    def _alternative_provider(current: str) -> str | None:
+        if current == "Gateway_A":
+            return "Gateway_B"
+        if current == "Gateway_B":
+            return "Gateway_A"
+        return None
+
+    def _commit(self, event_type: str, state: RecoveryState, payload: dict[str, Any]) -> None:
+        self.wal.write_event(
+            {
+                "event_type": f"recovery.{event_type}",
+                "transaction_id": state.transaction_id,
+                "state_version": state.state_version,
+                "status": state.status.value,
+                "timestamp": utc_now(),
+                "payload": payload,
+            }
+        )

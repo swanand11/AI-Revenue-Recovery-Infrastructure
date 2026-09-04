@@ -13,15 +13,27 @@ from detection.state.customer_intent import CustomerIntentStore
 from detection.state.degradation import DegradationStore
 
 
+TERMINAL_FAILURE_EVENT = {
+    "checkout": "checkout_failed",
+    "payment": "payment_failed",
+    "authorization": "authorization_failed",
+    "capture": "capture_failed",
+    "settlement": "settlement_failed",
+}
+
+
 def make_event(stage: str = "payment", status: str = "failure", failure_code: str | None = "TIMEOUT", **kwargs):
     tx = generate_transaction_context(seed=123)
+    event_type = kwargs.pop("event_type", None)
+    if event_type is None:
+        event_type = TERMINAL_FAILURE_EVENT[stage] if status == "failure" else sorted(VALID_EVENT_TYPES[stage])[0]
     return {
         "event_id": "evt_1",
         "event_version": 1,
         "timestamp": "2026-08-26T14:31:02.481Z",
         "service": f"{stage}-service",
         "stage": stage,
-        "event_type": sorted(VALID_EVENT_TYPES[stage])[0],
+        "event_type": event_type,
         "merchant_id": tx.merchant_id,
         "customer_id": tx.customer_id,
         "order_id": tx.order_id,
@@ -75,10 +87,12 @@ def test_failure_event_builds_detection():
 
 def test_customer_intent_scores():
     store = CustomerIntentStore()
-    e1 = make_event(status="success", failure_code=None)
-    score1 = store.update(e1["customer_id"], e1, 0.0)
-    e2 = make_event(status="failure", failure_code="TIMEOUT")
-    score2 = store.update(e2["customer_id"], e2, 60.0)
+    e1 = make_event(status="success", failure_code=None, event_type="payment_succeeded")
+    score1 = store.update(e1["customer_id"], e1, 0.0)["intent_score"]
+    e2 = make_event(event_id="evt_2", status="failure", failure_code="TIMEOUT", event_type="payment_failed")
+    score2 = store.update(e2["customer_id"], e2, 60.0)["intent_score"]
+    assert 0 <= score1 <= 1
+    assert 0 <= score2 <= 1
     assert score1 > score2
 
 
@@ -126,14 +140,32 @@ def test_successful_source_with_degradation_anomaly_is_still_context_only(monkey
     diagnostics = {}
     det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore(), diagnostics=diagnostics)
     assert det is None
-    assert diagnostics["decision"] == "skipped_source_context_only"
+    assert diagnostics["decision"] == "skipped_non_failure_source"
 
 
-def test_unknown_source_is_a_failure_detection_candidate():
+def test_unknown_source_is_not_a_detection_candidate():
     event = make_event(event_id="evt_unknown_failure", status="unknown", failure_code=None, event_type="payment_created")
     diagnostics = {}
     det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore(), diagnostics=diagnostics)
+    assert det is None
+    assert diagnostics["decision"] == "skipped_non_failure_source"
+
+
+def test_detection_event_uses_failed_source_event_type():
+    event = make_event(event_id="evt_authorization_failed_unique", stage="authorization", event_type="authorization_failed", failure_code="ISSUER_TIMEOUT")
+    det = process_event(event, RCAEngine(), CustomerIntentStore(), DegradationStore())
     assert det is not None
+    assert det["event_type"] == "authorization_failed"
+    assert det["source"]["event_type"] == "authorization_failed"
     assert det["status"] == "failure"
-    assert det["failure_code"] is None
-    assert det["metadata"]["source_status"] == "unknown"
+
+
+def test_duplicate_source_event_does_not_create_duplicate_detection():
+    event = make_event(event_id="evt_duplicate")
+    rca = RCAEngine()
+    intent = CustomerIntentStore()
+    degradation = DegradationStore()
+    assert process_event(event, rca, intent, degradation) is not None
+    diagnostics = {}
+    assert process_event(event, rca, intent, degradation, diagnostics=diagnostics) is None
+    assert diagnostics["decision"] == "skipped_duplicate_source_event"

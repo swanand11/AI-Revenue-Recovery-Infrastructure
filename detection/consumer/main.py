@@ -15,6 +15,7 @@ from common.config import SERVICE_CONFIG
 from detection.detectors.degradation import detect_degradation
 from detection.detectors.failure import detect_failure
 from detection.detectors.intent import update_customer_intent
+from detection.common import is_failure_event
 from detection.event_builder import build_detection_event, traceability_errors
 from detection.models.catalog import INTENT_MODEL_VERSION, MODEL_VERSION
 from detection.models.logistic_regression import HistoricalFailureModel, train_default_model
@@ -40,6 +41,23 @@ REQUIRED_INGESTION_FIELDS = {
     "failure_code", "metadata",
 }
 
+TERMINAL_OUTCOME_BY_STATUS = {
+    "success": {
+        "checkout_completed",
+        "payment_succeeded",
+        "authorization_succeeded",
+        "capture_succeeded",
+        "settlement_succeeded",
+    },
+    "failure": {
+        "checkout_failed",
+        "payment_failed",
+        "authorization_failed",
+        "capture_failed",
+        "settlement_failed",
+    },
+}
+
 
 def ingestion_event_validation_error(event: dict[str, Any]) -> str | None:
     missing = sorted(REQUIRED_INGESTION_FIELDS - set(event))
@@ -55,6 +73,18 @@ def ingestion_event_validation_error(event: dict[str, Any]) -> str | None:
         return f"invalid_event_type={event.get('event_type')!r}"
     if event.get("status") not in VALID_STATUSES:
         return f"invalid_status={event.get('status')!r}"
+    if event.get("status") in TERMINAL_OUTCOME_BY_STATUS and event.get("event_type") not in TERMINAL_OUTCOME_BY_STATUS[event["status"]]:
+        started_events = {
+            "checkout_started",
+            "payment_created",
+            "authorization_requested",
+            "capture_requested",
+            "settlement_initiated",
+        }
+        if event.get("event_type") in started_events and event.get("status") == "success":
+            pass
+        else:
+            return f"status_event_type_mismatch={event.get('status')}:{event.get('event_type')}"
     if event.get("status") == "failure" and event.get("failure_code") not in VALID_FAILURE_CODES:
         return f"invalid_failure_code={event.get('failure_code')!r}"
     if event.get("status") != "failure" and event.get("failure_code") not in (None, ""):
@@ -117,9 +147,9 @@ def process_event(
         }
     if diagnostics is not None:
         diagnostics["signals"] = signals
-    if event["status"] not in {"failure", "unknown"}:
+    if not is_failure_event(event):
         if diagnostics is not None:
-            diagnostics["decision"] = "skipped_source_context_only"
+            diagnostics["decision"] = "skipped_non_failure_source"
         return None
     if signals["failure"] is None:
         if diagnostics is not None:
@@ -129,7 +159,7 @@ def process_event(
     if diagnostics is not None:
         diagnostics["rca"] = root["root_cause"]
         diagnostics["decision"] = "detection_created"
-    detection_event = build_detection_event(event, signals, root["root_cause"], status="failure")
+    detection_event = build_detection_event(event, signals, root["root_cause"])
     errors = traceability_errors(event, detection_event)
     if errors:
         if diagnostics is not None:

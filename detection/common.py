@@ -32,8 +32,7 @@ def stage_service_name(stage: str) -> str:
 
 
 def is_failure_event(event: dict[str, Any]) -> bool:
-    # Unknown is an unresolved failure outcome for the current Detection contract.
-    return event.get("status") in {"failure", "unknown"}
+    return event.get("status") == "failure" and str(event.get("event_type", "")).endswith("_failed")
 
 
 def detection_event_type_for(stage: str) -> str:

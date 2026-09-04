@@ -6,6 +6,7 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY common ./common
+COPY detection ./detection
 COPY recovery ./recovery
 
 CMD ["python", "-u", "-m", "recovery.consumer.main"]

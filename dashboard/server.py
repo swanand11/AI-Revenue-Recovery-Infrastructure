@@ -147,8 +147,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if parsed.path == "/profile":
                 text_response(self, (STATIC_DIR / "profile.html").read_bytes())
                 return
+            if parsed.path == "/recovery":
+                text_response(self, (STATIC_DIR / "recovery.html").read_bytes())
+                return
             if parsed.path == "/profile.js":
                 text_response(self, (STATIC_DIR / "profile.js").read_bytes(), "application/javascript; charset=utf-8")
+                return
+            if parsed.path == "/recovery.js":
+                text_response(self, (STATIC_DIR / "recovery.js").read_bytes(), "application/javascript; charset=utf-8")
                 return
             if parsed.path == "/api/profile":
                 customer_id = parse_qs(parsed.query).get("customer_id", [""])[0]

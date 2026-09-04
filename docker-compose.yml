@@ -23,9 +23,9 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
       interval: 5s
-      timeout: 5s
+      timeout: 10s
       retries: 12
-      start_period: 10s
+      start_period: 60s
 
   kafka-init:
     image: apache/kafka:3.9.0
@@ -225,6 +225,42 @@ services:
       PROVIDER_AGENT_PORT: "50052"
     ports:
       - "50052:50052"
+    restart: unless-stopped
+
+  transaction-agent:
+    build:
+      context: .
+      dockerfile: ./recovery/Dockerfile
+    command: ["python", "-u", "-m", "recovery.agents.transaction.server"]
+    environment:
+      WAL_PATH: /app/wal/events.jsonl
+      AGENT_HEARTBEAT_SECONDS: "30"
+    volumes:
+      - wal_data:/app/wal
+    restart: unless-stopped
+
+  economics-agent:
+    build:
+      context: .
+      dockerfile: ./recovery/Dockerfile
+    command: ["python", "-u", "-m", "recovery.agents.economics.server"]
+    environment:
+      WAL_PATH: /app/wal/events.jsonl
+      AGENT_HEARTBEAT_SECONDS: "30"
+    volumes:
+      - wal_data:/app/wal
+    restart: unless-stopped
+
+  risk-agent:
+    build:
+      context: .
+      dockerfile: ./recovery/Dockerfile
+    command: ["python", "-u", "-m", "recovery.agents.risk.server"]
+    environment:
+      WAL_PATH: /app/wal/events.jsonl
+      AGENT_HEARTBEAT_SECONDS: "30"
+    volumes:
+      - wal_data:/app/wal
     restart: unless-stopped
 
   ingestion-bridge:

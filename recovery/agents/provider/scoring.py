@@ -1,5 +1,6 @@
 import uuid
 from recovery.api import provider_pb2
+from recovery.agents.provider.health import precompute_provider_health
 from recovery.models.contracts import utc_now
 
 def evaluate_provider(context: provider_pb2.ProviderContext) -> dict:
@@ -18,11 +19,16 @@ def evaluate_provider(context: provider_pb2.ProviderContext) -> dict:
     except Exception:
         signals = {}
         
-    provider_failure_rate = signals.get("failure_rate", 0.0)
-    provider_timeout_rate = signals.get("timeout_rate", 0.0)
-    
-    # Detection layer may provide 'anomaly' or 'score' or 'degradation_probability'
-    provider_degradation_probability = signals.get("degradation_probability", signals.get("score", 0.0))
+    provider_failure_rate = float(signals.get("failure_rate", 0.0) or 0.0)
+    provider_timeout_rate = float(signals.get("timeout_rate", 0.0) or 0.0)
+    degradation_model = signals.get("degradation_model") or {}
+    detection_degradation = signals.get("degradation") or {}
+    provider_degradation_detected = bool(detection_degradation.get("anomaly"))
+    explicit_degradation_probability = "degradation_probability" in signals
+    if "degradation_probability" not in signals and "probability" in degradation_model:
+        signals["degradation_probability"] = degradation_model["probability"]
+    provider_health = precompute_provider_health(context, signals)
+    provider_degradation_probability = provider_health["provider_degradation_probability"]
     
     alternative_provider = "Gateway_B" if current_provider == "Gateway_A" else "Gateway_A"
     if current_provider == "UNKNOWN":
@@ -33,7 +39,9 @@ def evaluate_provider(context: provider_pb2.ProviderContext) -> dict:
     provider_related_failures = {"TIMEOUT", "PROVIDER_ERROR", "GATEWAY_ERROR", "CONNECTION_ERROR", "ISSUER_TIMEOUT"}
     
     is_provider_fault = failure_code in provider_related_failures
-    is_degraded = provider_degradation_probability > 0.5
+    is_degraded = provider_degradation_detected or (
+        explicit_degradation_probability and provider_degradation_probability > 0.5
+    )
     
     if is_provider_fault and is_degraded:
         recommendation = "SWITCH_PROVIDER"
@@ -64,6 +72,10 @@ def evaluate_provider(context: provider_pb2.ProviderContext) -> dict:
             "provider_failure_rate": provider_failure_rate,
             "provider_timeout_rate": provider_timeout_rate,
             "provider_degradation_probability": provider_degradation_probability,
+            "provider_degradation_detected": provider_degradation_detected,
+            "provider_health_score": provider_health["provider_health_score"],
+            "provider_health_source": provider_health["provider_health_source"],
+            "provider_health_model": provider_health["provider_health_model"],
             "alternative_provider_available": alternative_provider_available,
             "alternative_provider": alternative_provider
         }

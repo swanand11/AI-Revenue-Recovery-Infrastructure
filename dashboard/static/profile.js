@@ -3,9 +3,7 @@ document.getElementById('profile-form').addEventListener('submit', async (e) => 
     const customerId = document.getElementById('customer-id').value.trim();
     if (!customerId) return;
     
-    document.getElementById('loading').style.display = 'block';
-    document.getElementById('results-container').style.display = 'none';
-    document.getElementById('error').style.display = 'none';
+    setProfileState('loading');
     
     try {
         const res = await fetch(`/api/profile?customer_id=${encodeURIComponent(customerId)}`);
@@ -14,22 +12,18 @@ document.getElementById('profile-form').addEventListener('submit', async (e) => 
         if (!res.ok) throw new Error(data.error || 'Failed to fetch profile');
         
         renderProfile(data);
+        setProfileState('success');
     } catch (err) {
-        document.getElementById('error').textContent = err.message;
-        document.getElementById('error').style.display = 'block';
-    } finally {
-        document.getElementById('loading').style.display = 'none';
+        setProfileState('error', err.message);
     }
 });
 
-document.getElementById('recovery-form').addEventListener('submit', async (e) => {
+if (document.getElementById('recovery-form')) document.getElementById('recovery-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const txnId = document.getElementById('transaction-id').value.trim();
     if (!txnId) return;
     
-    document.getElementById('loading').style.display = 'block';
-    document.getElementById('results-container').style.display = 'none';
-    document.getElementById('error').style.display = 'none';
+    setRecoveryState('loading');
     
     try {
         const res = await fetch(`/api/recovery?transaction_id=${encodeURIComponent(txnId)}`);
@@ -38,24 +32,45 @@ document.getElementById('recovery-form').addEventListener('submit', async (e) =>
         if (!res.ok) throw new Error(data.error || 'Failed to fetch recovery state');
         
         renderRecovery(data);
+        setRecoveryState('success');
     } catch (err) {
-        document.getElementById('error').textContent = err.message;
-        document.getElementById('error').style.display = 'block';
+        setRecoveryState('error', err.message);
     } finally {
-        document.getElementById('loading').style.display = 'none';
+        if (document.getElementById('loading').style.display === 'block') document.getElementById('loading').style.display = 'none';
     }
 });
+
+function setProfileState(state, message = '') {
+    document.getElementById('profile-idle').classList.toggle('hidden', state !== 'idle');
+    document.getElementById('profile-loading').classList.toggle('hidden', state !== 'loading');
+    document.getElementById('profile-error').classList.toggle('hidden', state !== 'error');
+    document.getElementById('profile-results').classList.toggle('hidden', state !== 'success');
+    document.getElementById('history-panel').classList.toggle('hidden', state !== 'success');
+    document.getElementById('profile-error').textContent = message;
+}
+
+function setRecoveryState(state, message = '') {
+    document.getElementById('recovery-idle').classList.toggle('hidden', state !== 'idle');
+    document.getElementById('recovery-assessment-container').style.display = state === 'success' ? 'block' : 'none';
+    document.getElementById('error').style.display = state === 'error' ? 'block' : 'none';
+    if (state === 'error') document.getElementById('error').textContent = message;
+}
 
 function renderRecovery(state) {
     document.getElementById('results-container').style.display = 'block';
     const container = document.getElementById('recovery-assessment-container');
     container.style.display = 'block';
+    renderConsensus(state.consensus || {});
+    renderPolicy(state.policy || {});
     
     const grid = document.getElementById('agent-beliefs-grid');
     grid.innerHTML = '';
+    document.getElementById('recovery-empty').style.display = 'none';
     
     if (!state.agent_beliefs || state.agent_beliefs.length === 0) {
-        grid.innerHTML = '<div style="color: #94a3b8; padding: 20px 0;">No agent beliefs found for this transaction.</div>';
+        document.getElementById('recovery-empty').style.display = 'block';
+        document.getElementById('consensus-panel').style.display = 'none';
+        document.getElementById('policy-panel').style.display = 'none';
         return;
     }
     
@@ -90,27 +105,98 @@ function renderRecovery(state) {
     });
 }
 
+function renderPolicy(policy) {
+    const panel = document.getElementById('policy-panel');
+    if (!policy || Object.keys(policy).length === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    const list = document.getElementById('guardrail-list');
+    list.innerHTML = (policy.checks || []).map((check) => `
+        <div style="display:flex; justify-content:space-between; gap:12px; color:#cbd5e1;">
+            <span>${check.name || check.check || 'Guardrail'}</span><strong style="color:${check.passed ? '#6ee7b7' : '#fca5a5'}">${check.passed ? 'PASS' : 'BLOCK'}</strong>
+        </div>`).join('');
+    const status = document.getElementById('policy-status');
+    status.textContent = policy.allowed ? 'ASSESSMENT PASS' : 'ASSESSMENT BLOCKED';
+    status.style.background = policy.allowed ? 'rgba(16,185,129,.2)' : 'rgba(239,68,68,.2)';
+    status.style.color = policy.allowed ? '#6ee7b7' : '#fca5a5';
+}
+
+function renderConsensus(consensus) {
+    const panel = document.getElementById('consensus-panel');
+    if (!consensus || Object.keys(consensus).length === 0) {
+        panel.style.display = 'none';
+        return;
+    }
+    panel.style.display = 'block';
+
+    const support = Math.round((consensus.support_ratio || 0) * 100);
+    const threshold = Math.round((consensus.threshold || 0) * 100);
+    const status = consensus.decision_status || 'UNKNOWN';
+    const statusEl = document.getElementById('consensus-status');
+
+    document.getElementById('consensus-decision').textContent = consensus.decision || 'DO_NOTHING';
+    document.getElementById('consensus-support').textContent = `${support}%`;
+    document.getElementById('consensus-threshold').textContent = `${threshold}%`;
+    document.getElementById('consensus-valid-agents').textContent = `${consensus.valid_agent_count || 0}/${consensus.minimum_agent_count || 0}`;
+    document.getElementById('consensus-conflicts').textContent = consensus.conflicts_detected ? 'YES' : 'NO';
+
+    let statusColor = '#94a3b8';
+    if (status === 'QUORUM_REACHED') statusColor = '#10b981';
+    else if (status === 'NO_QUORUM' || status === 'INSUFFICIENT_EVIDENCE') statusColor = '#f59e0b';
+    else if (status.includes('BLOCK') || status.includes('REJECT')) statusColor = '#ef4444';
+    statusEl.textContent = status;
+    statusEl.style.background = statusColor;
+    statusEl.style.color = 'white';
+    statusEl.style.border = 'none';
+
+    const bars = document.getElementById('support-bars');
+    bars.innerHTML = '';
+    Object.entries(consensus.support_by_action || {}).forEach(([action, ratio]) => {
+        const pct = Math.round((ratio || 0) * 100);
+        const row = document.createElement('div');
+        row.innerHTML = `
+            <div style="display: flex; justify-content: space-between; color: #cbd5e1; font-size: 0.9em; margin-bottom: 5px;">
+                <span>${action}</span>
+                <span>${pct}%</span>
+            </div>
+            <div style="height: 10px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden;">
+                <div style="height: 100%; width: ${Math.min(100, pct)}%; background: ${pct >= threshold ? '#10b981' : '#38bdf8'};"></div>
+            </div>
+        `;
+        bars.appendChild(row);
+    });
+
+    const table = document.getElementById('agent-vote-table');
+    const rows = (consensus.agent_results || []).map((agent) => `
+        <tr>
+            <td>${agent.agent_id || '-'}</td>
+            <td>${agent.recommendation || '-'}</td>
+            <td>${Math.round((agent.confidence || 0) * 100)}%</td>
+            <td>${agent.status || '-'}</td>
+            <td>${agent.reason || ''}</td>
+        </tr>
+    `).join('');
+    table.innerHTML = `
+        <table class="records-table" style="min-width: 720px;">
+            <thead>
+                <tr>
+                    <th>Agent</th>
+                    <th>Vote</th>
+                    <th>Confidence</th>
+                    <th>BFT Status</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+    `;
+}
+
 function renderProfile(data) {
     document.getElementById('results-container').style.display = 'block';
     
     const intent = data.intent;
     
-    // ── History-status banner ──────────────────────────────────────────
-    const statusBanner = document.getElementById('history-status-banner');
     const hs = intent.history_status || 'UNKNOWN';
-    if (['HISTORY_QUERY_ERROR', 'HISTORY_PARSE_ERROR', 'PARTIAL_HISTORY'].includes(hs)) {
-        const labels = {
-            HISTORY_QUERY_ERROR: '⚠️ Splunk query failed — scores may be unreliable.',
-            HISTORY_PARSE_ERROR: '⚠️ Events retrieved but could not be parsed — scores may be incorrect.',
-            PARTIAL_HISTORY: '⚠️ Some events could not be parsed — scores are based on partial data.',
-        };
-        statusBanner.textContent = labels[hs] || hs;
-        statusBanner.style.display = 'block';
-    } else {
-        statusBanner.style.display = 'none';
-    }
-
-    // ── Data quality badge ────────────────────────────────────────────
     const qualityEl = document.getElementById('data-quality');
     const qualityColors = {
         HISTORY_FOUND:       { bg: 'rgba(16,185,129,0.15)', fg: '#10b981' },
@@ -156,12 +242,6 @@ function renderProfile(data) {
     document.getElementById('breakdown-capture').textContent = intent.capture_failures || 0;
     document.getElementById('breakdown-settlement').textContent = intent.settlement_failures || 0;
 
-    // ── Data quality detail ───────────────────────────────────────────
-    document.getElementById('raw-event-count').textContent = intent.raw_event_count || 0;
-    document.getElementById('parsed-event-count').textContent = intent.parsed_event_count || 0;
-    document.getElementById('parse-error-count').textContent = intent.parse_error_count || 0;
-
-    // ── Timeline ──────────────────────────────────────────────────────
     const timeline = document.getElementById('timeline');
     timeline.innerHTML = '';
     

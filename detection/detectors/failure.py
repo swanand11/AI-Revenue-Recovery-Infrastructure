@@ -12,5 +12,5 @@ def detect_failure(event: dict[str, Any]) -> dict[str, Any] | None:
         "candidate": True,
         "failure_code": event.get("failure_code"),
         "status": "failure",
-        "severity": "high" if event.get("failure_code") in {"TIMEOUT", "GATEWAY_ERROR", "SERVICE_ERROR"} else "medium",
+        "severity": "high" if event.get("failure_code") in {"TIMEOUT", "ISSUER_TIMEOUT", "GATEWAY_ERROR", "SERVICE_ERROR"} else "medium",
     }
