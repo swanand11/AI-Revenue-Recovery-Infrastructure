@@ -1,0 +1,47 @@
+{
+  "model_version": "degradation-logreg-v1",
+  "model_type": "logistic_regression",
+  "training_window": {
+    "start": "2026-07-01",
+    "end": "2026-08-26"
+  },
+  "training_timestamp": "2026-08-26T00:00:00Z",
+  "feature_list": [
+    "payment_method",
+    "payment_provider",
+    "stage",
+    "failure_rate",
+    "timeout_rate",
+    "avg_latency_ms"
+  ],
+  "categories": {
+    "payment_method": [
+      "UPI"
+    ],
+    "payment_provider": [
+      "Gateway_A",
+      "Gateway_B",
+      "Gateway_C"
+    ],
+    "stage": [
+      "authorization"
+    ]
+  },
+  "metrics": {
+    "precision": 0.833333,
+    "recall": 0.714286,
+    "f1": 0.769231,
+    "roc_auc": 0.649351
+  },
+  "weights": [
+    -0.34750114454138775,
+    -0.7496256342268981,
+    1.1517501239124106,
+    -0.7496256342268981,
+    -0.34750114454138775,
+    0.7692900384787833,
+    0.48830253039150795,
+    0.7897448856777335
+  ],
+  "intercept": -0.34750114454138775
+}

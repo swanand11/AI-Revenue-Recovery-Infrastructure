@@ -1,80 +1,62 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>RevTrace Dashboard</title>
-  <link rel="stylesheet" href="/styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RevTrace Recovery Demo</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body { background: linear-gradient(135deg, #0b1220, #182638); color: #f8fafc; font-family: Outfit, sans-serif; }
+    .shell { max-width: 1440px; padding: 32px 40px 70px; }
+    .topbar, .hero, .impact-grid, .flow-grid, .settlement-grid, .timeline { display: grid; gap: 18px; }
+    .topbar { grid-template-columns: 1fr auto; align-items: center; margin-bottom: 42px; }
+    .nav { display: flex; gap: 9px; flex-wrap: wrap; }
+    .nav a { color: #cbd5e1; text-decoration: none; padding: 9px 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 10px; }
+    .nav a.active { color: #fff; background: rgba(56,189,248,.18); border-color: #38bdf8; }
+    .hero { grid-template-columns: 1fr 1fr; align-items: end; margin-bottom: 26px; }
+    .eyebrow { color: #55d6be; text-transform: uppercase; letter-spacing: .18em; font-size: .72rem; font-weight: 700; }
+    h1, h2, h3, p { margin: 0; } h1 { font-size: clamp(2.3rem, 5vw, 4.6rem); line-height: .96; } h2 { font-size: 1.3rem; }
+    .lede, .small, .status { color: #9fb0c4; margin-top: 10px; }
+    .card { background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.11); border-radius: 18px; padding: 22px; box-shadow: 0 12px 35px rgba(0,0,0,.18); }
+    button { font: inherit; color: #fff; background: #20364b; border: 1px solid rgba(255,255,255,.14); border-radius: 10px; padding: 11px 15px; cursor: pointer; font-weight: 600; }
+    button.primary { background: linear-gradient(90deg, #0ea5a4, #2563eb); border: 0; }
+    .impact-grid { grid-template-columns: repeat(5, 1fr); margin-top: 17px; }
+    .impact, .money { padding: 15px; background: rgba(255,255,255,.045); border-radius: 12px; }
+    .impact strong, .money strong { display: block; font-size: 1.5rem; color: #fff; }
+    .impact span, .money span { color: #9fb0c4; font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; }
+    .money-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 12px; }
+    .money { border-left: 3px solid #55d6be; border-radius: 9px; }
+    .flow-grid, .settlement-grid { grid-template-columns: repeat(2, 1fr); margin-top: 20px; }
+    .flow-header { display: flex; justify-content: space-between; gap: 14px; align-items: start; }
+    .badge { display: inline-block; padding: 5px 9px; border-radius: 99px; color: #6ee7b7; background: rgba(16,185,129,.16); font-size: .7rem; font-weight: 700; white-space: nowrap; }
+    .badge.failed { color: #fca5a5; background: rgba(239,68,68,.16); }
+    .decision { margin: 18px 0; padding: 18px; border-radius: 12px; background: rgba(56,189,248,.1); border: 1px solid rgba(56,189,248,.22); }
+    .decision strong { display: block; font-size: 1.45rem; color: #7dd3fc; margin: 5px 0; }
+    .flow-meta, .fact { display: flex; justify-content: space-between; gap: 14px; color: #cbd5e1; flex-wrap: wrap; }
+    .timeline { margin-top: 18px; gap: 9px; }
+    .timeline-item { display: grid; grid-template-columns: 12px 1fr; gap: 10px; align-items: start; color: #cbd5e1; font-size: .88rem; }
+    .timeline-item i { width: 10px; height: 10px; border-radius: 50%; background: #55d6be; margin-top: 5px; }
+    .timeline-item.failed i { background: #fb7185; }
+    .settlement-card { border-top: 3px solid #f59e0b; }
+    .settlement-facts { display: grid; gap: 10px; margin-top: 17px; }
+    .fact { border-bottom: 1px solid rgba(255,255,255,.08); padding-bottom: 8px; }
+    .fact strong { color: #fff; text-align: right; }
+    .message { white-space: pre-wrap; color: #dbeafe; background: rgba(0,0,0,.18); padding: 15px; border-radius: 10px; line-height: 1.5; font-size: .86rem; }
+    .audit { margin-top: 15px; } .audit summary { cursor: pointer; color: #7dd3fc; } .empty { color: #9fb0c4; padding: 24px; text-align: center; } .section-label { margin-top: 34px; }
+    @media (max-width: 1050px) { .impact-grid, .money-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 800px) { .shell { padding: 24px 18px; } .topbar, .hero, .flow-grid, .settlement-grid { grid-template-columns: 1fr; } .impact-grid, .money-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 480px) { .impact-grid, .money-grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body>
-  <main class="shell">
-    <section class="hero">
-      <div>
-        <p class="eyebrow">RevTrace live observability</p>
-        <h1>Simple live tables for ingestion and detection.</h1>
-        <p class="lede">Kafka shows ingestion. Splunk shows detection. Use the lifecycle view to follow one transaction across both.</p>
-        <p><a href="/flow">Live flow</a> · <a href="/lifecycle">Transaction lifecycle</a> · <a href="/profile">Intent Profiler</a></p>
-      </div>
-      <div class="status-card">
-        <div class="status-label">Live stream</div>
-        <div id="last-refresh" class="status-value">Waiting for data...</div>
-      </div>
-    </section>
-
-    <section class="panel grid">
-      <div class="card">
-        <h2>Traceability</h2>
-        <p class="subtle">Enter a transaction id to see the path from ingestion to detection.</p>
-        <div class="form single">
-          <input id="trace-txn" placeholder="transaction_id" />
-          <button id="trace-btn">Load trace</button>
-        </div>
-        <div id="trace-results" class="trace-lane"></div>
-      </div>
-
-      <div class="card">
-        <h2>Quick Search</h2>
-        <div class="form">
-          <input id="transaction_id" placeholder="transaction_id" />
-          <input id="customer_id" placeholder="customer_id" />
-          <input id="stage" placeholder="stage" />
-          <input id="status" placeholder="status" />
-          <input id="event_type" placeholder="event_type" />
-          <input id="failure_code" placeholder="failure_code" />
-        </div>
-        <button id="search-btn">Search Splunk</button>
-        <div id="search-results" class="results"></div>
-      </div>
-    </section>
-
-    <section class="panel grid">
-      <div class="card">
-        <h2>Event Table</h2>
-        <p class="subtle">Latest events captured from the Kafka topic bridge.</p>
-        <div id="event-table" class="table-host"></div>
-      </div>
-
-      <div class="card">
-        <h2>Detection Event Table</h2>
-        <p class="subtle">Fresh detection records with anomaly-based highlighting and de-duplicated traces.</p>
-        <div id="detection-table" class="table-host"></div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="card">
-        <h2>Selected Event</h2>
-        <pre id="detail-view" class="detail">Click a row to inspect its JSON payload.</pre>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="card">
-        <h2>Live Summary</h2>
-        <div id="stats" class="stats"></div>
-      </div>
-    </section>
-  </main>
-  <script src="/app.js"></script>
+<main class="shell">
+  <nav class="topbar"><div><div class="eyebrow">RevTrace / Live</div><h2>Recovery Control Room</h2></div><div class="nav"><a class="active" href="/">Live</a><a href="/admin">Admin</a><a href="/profile">Customer Analytics</a><a href="/recovery">Recovery</a></div></nav>
+  <header class="hero"><div><div class="eyebrow">End-to-end revenue recovery</div><h1>Watch the live mock stream.</h1><p class="lede">Mock services continuously emit payment and settlement events. This page observes backend state; it does not trigger scenarios.</p></div><div class="card"><div class="eyebrow">Live status</div><h2 id="demo-status" style="margin-top:8px">Observing</h2><p id="demo-detail" class="small">Open Admin for the complete operator workflow.</p></div></header>
+  <section class="card"><div class="eyebrow">Revenue recovery impact</div><div class="impact-grid" id="impact-cards"><div class="empty" style="grid-column:1/-1">Waiting for live events from the running mock services.</div></div><div class="money-grid" id="money-cards"></div></section>
+  <h2 class="section-label">Recovery flows</h2><section id="flows" class="flow-grid"><div class="card empty">Recovery cases appear after failure detections are processed.</div></section>
+  <h2 class="section-label">Merchant settlement</h2><section id="settlement" class="settlement-grid"><div class="card empty">Settlement batches appear after captured payments reach simulated T+2.</div></section>
+</main><script src="/app.js"></script>
 </body>
 </html>

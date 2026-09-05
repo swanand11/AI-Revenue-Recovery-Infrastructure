@@ -19,7 +19,15 @@ class BeliefValidator:
    return 'REJECTED',reason
   self.seen.add(b.belief_id);return 'PARTICIPATING',None
 class WeightedConsensus:
- safety=[Recommendation.DO_NOTHING,Recommendation.RETRY_CAPTURE,Recommendation.RETRY_PAYMENT,Recommendation.SWITCH_PROVIDER,Recommendation.RECOVER]
+ safety=[
+  Recommendation.DO_NOTHING,
+  Recommendation.RETRY_CAPTURE,
+  Recommendation.RETRY_PAYMENT,
+  Recommendation.SWITCH_PROVIDER,
+  Recommendation.SEND_PAYMENT_LINK,
+  Recommendation.ESCALATE,
+  Recommendation.RECOVER,
+ ]
  def __init__(self,c:RecoveryConfig,validator=None):self.c=c;self.validator=validator or BeliefValidator(c)
  def aggregate(self,beliefs,transaction_id,state_version):
   rs=[];valid=[]

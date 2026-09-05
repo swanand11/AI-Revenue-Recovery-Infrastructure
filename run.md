@@ -1,6 +1,89 @@
 # Debug Run Guide
 
+## One-command startup
+
+The recommended local startup is now `run.sh`. It builds the Compose images once,
+then opens one terminal window per active service so Kafka, Detection, Recovery,
+Settlement, Splunk, and Dashboard logs remain independently visible.
+
+```bash
+chmod +x run.sh
+./run.sh
+```
+
+Open the admin control room at <http://localhost:8080> or
+<http://localhost:8080/admin>. The default mock scenario is a continuous
+`live_mix` of successful captures, checkout abandonment, provider failures,
+recovery follow-up attempts, and async settlement. Override it before starting
+when you want a specific flow:
+
+```bash
+MOCK_SCENARIO=normal ./run.sh
+MOCK_SCENARIO=payment_failure ./run.sh
+SETTLEMENT_OUTCOME_PATTERN=success,failed,success SETTLEMENT_BATCH_INTERVAL_SECONDS=5 ./run.sh
+```
+
+Useful options:
+
+```bash
+SKIP_BUILD=1 ./run.sh       # reuse already-built images
+./run.sh --down             # stop and remove the Compose stack
+```
+
+Clean application state before a verified run:
+
+```bash
+scripts/reset_demo_state.sh
+docker compose up
+PYTHONPATH=. ./.venv/bin/python scripts/verify_live_system.py
+```
+
+The reset script removes only this Compose application’s Kafka, WAL, Splunk,
+and dashboard materialized-state volumes plus local dashboard snapshots.
+
+`run.sh` detects `gnome-terminal`, `konsole`, `xfce4-terminal`, `kitty`, or
+`xterm`. If no supported terminal emulator is installed, use the manual
+per-terminal commands below.
+
+The manual startup remains below for debugging individual services or running a
+single layer in the foreground.
+
 Start each layer in its own terminal. Keep the terminals open: every service prints the last event it produced, consumed, or forwarded.
+
+## Admin UI routes
+
+The admin UI is served by the existing dashboard service and reuses the same
+backend state. Use these pages during the demo:
+
+```text
+/admin
+/admin/ingestion
+/admin/detection
+/admin/providers
+/admin/recovery/customer
+/admin/recovery/provider
+/admin/settlement
+/admin/settlement/rca
+/admin/money-trail
+/admin/escalations
+/admin/audit
+/customer
+/merchant
+```
+
+The admin portal observes the live materialized event store populated by
+`ingestion-bridge`; it does not generate demo state. To run the live
+integration observer after the stack is up, use:
+
+```bash
+PYTHONPATH=. ./.venv/bin/python scripts/verify_live_system.py
+```
+
+Failed rows on `/admin/settlement` include a `Visualize money trail` link. Use
+that link to inspect customer to merchant mapping, captured amount, settlement
+status, and where the settlement rail stopped. Use `/customer` for payment-link
+notification acceptance status and `/merchant` for merchant-facing settlement
+messages.
 
 ## 0. Stop old containers
 
@@ -37,7 +120,13 @@ In a second terminal:
 
 This starts one authoritative `mock-pipeline`, not five independent transaction generators. Watch for `sent topic=... key=... event_id=... transaction_id=...`. If the transaction ID changes within one lifecycle, the leak is at the generator boundary.
 
-With no scenario override, the demo emits a seeded random failure at a valid lifecycle stage with a contract-valid failure code, so Detection/RCA/Splunk output is visible immediately. Use `MOCK_SCENARIO=normal` when you need a healthy lifecycle with no failure output. Change `MOCK_SEED` to reproduce or vary the generated failure.
+With no scenario override, the demo emits a paced `live_mix`: normal successful
+captures, checkout abandonment, payment failure, authorization failure, and
+capture failure. Detection/RCA/Splunk output is visible from the valid terminal
+failures, while successful captures continue accumulating toward exact
+100-transaction settlement batches. Use `MOCK_SCENARIO=normal` when you need a
+healthy lifecycle with no failure output. Change `MOCK_SEED` to reproduce or
+vary the generated traffic.
 
 Choose a coherent scenario when needed:
 
@@ -47,10 +136,16 @@ MOCK_SCENARIO=normal ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=payment_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=authorization_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=capture_failure ./.venv/bin/python runner/start_mocks.py --build
-MOCK_SCENARIO=settlement_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=checkout_failure ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=recovery_retry ./.venv/bin/python runner/start_mocks.py --build
 MOCK_SCENARIO=random_failure MOCK_SEED=42 ./.venv/bin/python runner/start_mocks.py --build
+```
+
+For async settlement failure, keep the customer lifecycle successful through capture and configure the settlement batcher. The default Compose pattern is `success,failed,success`, so Batch 001 succeeds, Batch 002 fails with RCA/escalation, and Batch 003 succeeds unless overridden:
+
+```bash
+MOCK_SCENARIO=settlement_failure ./.venv/bin/python runner/start_mocks.py --build
+SETTLEMENT_OUTCOME_PATTERN=success,failed,success SETTLEMENT_BATCH_INTERVAL_SECONDS=5 docker compose up settlement-service
 ```
 
 Every normal-flow line should show `status=success`. A `failure` line is terminal;
@@ -281,22 +376,24 @@ Open `http://localhost:8080`.
 
 Dashboard views:
 
-- `/`: Kafka ingestion table, Recovery output table, search, and event JSON
-- `/flow`: newest events arriving in Splunk
-- `/lifecycle`: enter a `transaction_id` and check Kafka ingestion plus Recovery output across checkout → payment → auth → capture → settlement
-- `/profile`: enter a `customer_id` to view Intent Profiler and analyze intent scoring, or enter a `transaction_id` in the Recovery Assessment to view independent agent beliefs.
+- `/` or `/admin`: RevTrace Admin control room
+- `/admin/settlement`: settlement batches with failed-batch money-trail links
+- `/admin/money-trail?batch_id=<batch_id>`: customer to merchant settlement mapping
+- `/admin/escalations`: highlighted bank and merchant escalation messages
+- `/customer`: customer-side payment-link notification and acceptance view
+- `/merchant`: merchant-side settlement status and messages
 
-Copy a transaction ID from the ingestion terminal or dashboard, open `/lifecycle`, and click `Load lifecycle`. The trace joins the Kafka bridge records with the Splunk Recovery record. Source ingestion and Detection output are shown separately even when they share the same `event_id`. A missing stage identifies the leak.
+Copy a failed batch ID from `/admin/settlement`, click `Visualize money trail`,
+and confirm that captured customer payments map to the affected merchant
+settlement path.
 
 ## 15. Visualize agent beliefs and BFT logic
 
-In the dashboard, open:
+Use the Recovery API directly when you need transaction-level agent detail:
 
-```text
-http://localhost:8080/profile
+```bash
+curl http://localhost:8090/recovery/<transaction_id>
 ```
-
-Enter a `transaction_id` in Recovery Assessment and click `Get Assessment`. The page shows:
 
 - all agent beliefs and evidence
 - consensus decision

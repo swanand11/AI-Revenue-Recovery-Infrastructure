@@ -37,9 +37,9 @@ SERVICE_CONFIG = {
         "service": "settlement-service",
         "stage": "settlement",
         "topic": "settlement.events",
-        "start_event": "settlement_initiated",
-        "success_event": "settlement_succeeded",
-        "failure_event": "settlement_failed",
+        "start_event": "settlement_batch_ready",
+        "success_event": "settlement_batch_succeeded",
+        "failure_event": "settlement_batch_failed",
     },
 }
 

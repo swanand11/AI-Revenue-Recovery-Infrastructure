@@ -8,11 +8,13 @@ from recovery.models.contracts import Belief, Recommendation, RecoveryState, Rec
 
 FINAL_STATUSES = {"succeeded", "success", "captured", "settled", "recovered", "captured_success", "settled_success"}
 RECOVERABLE_STAGES = {
+    "checkout": Recommendation.SEND_PAYMENT_LINK,
     "payment": Recommendation.RETRY_PAYMENT,
     "authorization": Recommendation.RETRY_PAYMENT,
     "auth": Recommendation.RETRY_PAYMENT,
     "capture": Recommendation.RETRY_CAPTURE,
 }
+PROVIDER_FAILURES = {"TIMEOUT", "PROVIDER_ERROR", "GATEWAY_ERROR", "CONNECTION_ERROR", "ISSUER_TIMEOUT"}
 
 
 def evaluate_transaction(state: RecoveryState, event: dict[str, Any]) -> Belief:
@@ -25,6 +27,10 @@ def evaluate_transaction(state: RecoveryState, event: dict[str, Any]) -> Belief:
         recommendation = Recommendation.DO_NOTHING
         confidence = 0.96
         reason_code = "TRANSACTION_ALREADY_SUCCESSFUL"
+    elif failure_code in PROVIDER_FAILURES and (event.get("target_provider") or event.get("metadata", {}).get("target_provider")):
+        recommendation = Recommendation.SWITCH_PROVIDER
+        confidence = 0.91
+        reason_code = "PROVIDER_SWITCH_RECOVERABLE"
     elif stage in RECOVERABLE_STAGES:
         recommendation = RECOVERABLE_STAGES[stage]
         confidence = 0.88 if failure_code else 0.72

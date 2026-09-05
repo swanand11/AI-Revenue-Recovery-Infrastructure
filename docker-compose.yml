@@ -111,7 +111,6 @@ services:
     restart: unless-stopped
 
   settlement-service:
-    profiles: ["legacy"]
     build:
       context: .
       dockerfile: ./services/settlement/Dockerfile
@@ -119,6 +118,9 @@ services:
       - SERVICE_NAME=settlement-service
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - WAL_PATH=/app/wal/events.jsonl
+      - SETTLEMENT_BATCH_INTERVAL_SECONDS=${SETTLEMENT_BATCH_INTERVAL_SECONDS:-30}
+      - SETTLEMENT_PROCESSING_DELAY_SECONDS=${SETTLEMENT_PROCESSING_DELAY_SECONDS:-3}
+      - SETTLEMENT_OUTCOME_PATTERN=${SETTLEMENT_OUTCOME_PATTERN:-success,failed,success}
     volumes:
       - wal_data:/app/wal
     depends_on:
@@ -134,7 +136,7 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       WAL_PATH: /app/wal/events.jsonl
-      MOCK_SCENARIO: ${MOCK_SCENARIO:-random_failure}
+      MOCK_SCENARIO: ${MOCK_SCENARIO:-live_mix}
       MOCK_SEED: ${MOCK_SEED:-753251}
       MOCK_TRANSACTION_ID: ${MOCK_TRANSACTION_ID:-}
       MOCK_INTERVAL_SECONDS: ${MOCK_INTERVAL_SECONDS:-5}

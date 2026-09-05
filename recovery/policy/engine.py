@@ -55,10 +55,12 @@ class GuardrailPolicy:
     def _concrete_action(consensus, context: dict) -> Recommendation:
         if consensus.decision != Recommendation.RECOVER:
             return consensus.decision
+        stage = str(context.get("stage") or "").lower()
+        if stage == "checkout" and float(context.get("intent_score") or 0.0) > float(context.get("current_median") or 1.0):
+            return Recommendation.SEND_PAYMENT_LINK
         provider_failures = {"TIMEOUT", "PROVIDER_ERROR", "GATEWAY_ERROR", "CONNECTION_ERROR", "ISSUER_TIMEOUT"}
         if str(context.get("failure_code") or "") in provider_failures and context.get("target_provider"):
             return Recommendation.SWITCH_PROVIDER
-        stage = str(context.get("stage") or "").lower()
         if stage == "capture":
             return Recommendation.RETRY_CAPTURE
         if stage in {"payment", "authorization", "auth"}:

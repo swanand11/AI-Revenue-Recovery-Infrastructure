@@ -19,10 +19,10 @@ VALID_FAILURE_CODES = {
 
 VALID_EVENT_TYPES = {
     "checkout": {"checkout_started", "checkout_completed", "checkout_failed"},
-    "payment": {"payment_created", "payment_succeeded", "payment_failed"},
+    "payment": {"payment_created", "payment_link_clicked", "payment_succeeded", "payment_failed"},
     "authorization": {"authorization_requested", "authorization_succeeded", "authorization_failed"},
     "capture": {"capture_requested", "capture_succeeded", "capture_failed"},
-    "settlement": {"settlement_initiated", "settlement_succeeded", "settlement_failed"},
+    "settlement": {"settlement_batch_ready", "settlement_batch_processing", "settlement_batch_succeeded", "settlement_batch_failed"},
 }
 
 

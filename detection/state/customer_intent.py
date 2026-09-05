@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import statistics
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -65,6 +66,8 @@ def signal_for_event(event: dict[str, Any]) -> str:
         return "payment_attempted"
     if event_type == "payment_succeeded":
         return "successful_payment"
+    if event_type == "checkout_failed":
+        return "checkout_abandoned"
     if event_type.endswith("_failed"):
         if failure_code in {"ISSUER_DECLINED", "INSUFFICIENT_FUNDS"}:
             return "hard_decline"
@@ -123,6 +126,8 @@ class CustomerIntentState:
         return self.snapshot(timestamp_epoch)
 
     def snapshot(self, timestamp_epoch: float | None = None) -> dict[str, Any]:
+        if not self.evidence:
+            return self.to_dict()
         timestamp = timestamp_epoch if timestamp_epoch is not None else max((e.timestamp_epoch for e in self.evidence), default=0.0)
         short_logit = PRIOR_LOGIT
         long_logit = PRIOR_LOGIT
@@ -183,6 +188,64 @@ class CustomerIntentStore:
             if state.customer_id == customer_id:
                 return state.snapshot(timestamp_epoch)["intent_score"]
         return 0.5
+
+    def current_median(self, merchant_id: str | None = None, timestamp_epoch: float | None = None) -> float:
+        scores = [
+            state.snapshot(timestamp_epoch)["intent_score"]
+            for state in self.customers.values()
+            if merchant_id is None or state.merchant_id == merchant_id
+        ]
+        if not scores:
+            return 0.5
+        return float(round(statistics.median(scores), 6))
+
+    def current_median_excluding(self, customer_id: str, merchant_id: str | None = None, timestamp_epoch: float | None = None) -> float:
+        scores = [
+            state.snapshot(timestamp_epoch)["intent_score"]
+            for state in self.customers.values()
+            if state.customer_id != customer_id and (merchant_id is None or state.merchant_id == merchant_id)
+        ]
+        if not scores:
+            return 0.5
+        return float(round(statistics.median(scores), 6))
+
+    def snapshot(self, customer_id: str, merchant_id: str | None = None, timestamp_epoch: float | None = None) -> dict[str, Any]:
+        score = 0.5
+        confidence = 0.0
+        short_term_intent = 0.5
+        long_term_signal = 0.5
+        evidence_count = 0
+        model_version = INTENT_MODEL_VERSION
+        session_id = None
+        last_updated = None
+        for key, state in self.customers.items():
+            if state.customer_id == customer_id and (merchant_id is None or state.merchant_id == merchant_id):
+                state_snapshot = state.snapshot(timestamp_epoch)
+                score = float(state_snapshot["intent_score"])
+                confidence = float(state_snapshot["confidence"])
+                short_term_intent = float(state_snapshot["short_term_intent"])
+                long_term_signal = float(state_snapshot["long_term_signal"])
+                evidence_count = int(state_snapshot["evidence_count"])
+                model_version = state_snapshot["model_version"]
+                session_id = state_snapshot["session_id"]
+                last_updated = state_snapshot["last_updated"]
+                merchant_id = state_snapshot["merchant_id"]
+                break
+        current_median = self.current_median(merchant_id=merchant_id, timestamp_epoch=timestamp_epoch)
+        return {
+            "customer_id": customer_id,
+            "merchant_id": merchant_id or "",
+            "intent_score": score,
+            "current_median": current_median,
+            "above_median": score > current_median,
+            "confidence": confidence,
+            "short_term_intent": short_term_intent,
+            "long_term_signal": long_term_signal,
+            "evidence_count": evidence_count,
+            "session_id": session_id,
+            "last_updated": last_updated,
+            "model_version": model_version,
+        }
 
     def save(self) -> None:
         if not self.path:

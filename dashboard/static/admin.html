@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RevTrace Admin</title>
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    body { background: #f7f7f4; }
+    .admin-shell { max-width: 1560px; margin: 0 auto; padding: 24px; }
+    .admin-top { display: grid; grid-template-columns: 1fr auto; gap: 18px; align-items: end; margin-bottom: 18px; }
+    .admin-nav { display: flex; gap: 8px; flex-wrap: wrap; }
+    .admin-nav a { color: var(--accent); text-decoration: none; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; background: white; font-size: .86rem; }
+    .admin-nav a.active { background: var(--accent); color: white; border-color: var(--accent); }
+    .admin-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
+    .admin-metric { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 13px; min-height: 76px; }
+    .admin-metric strong { display: block; font-size: 1.35rem; }
+    .admin-metric span { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+    .admin-panel { background: white; border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+    .admin-panel + .admin-panel { margin-top: 14px; }
+    .admin-table { width: 100%; border-collapse: collapse; min-width: 980px; }
+    .admin-table th, .admin-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; font-size: .9rem; }
+    .admin-table th { color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-size: .72rem; background: #fafafa; }
+    .table-scroll { overflow-x: auto; }
+    .chain { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    .chain span { padding: 7px 9px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-size: .8rem; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    pre { background: #f6f6f3; border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: 80px; max-height: 280px; }
+    @media (max-width: 1100px) { .admin-grid { grid-template-columns: repeat(3, 1fr); } .split { grid-template-columns: 1fr; } }
+    @media (max-width: 720px) { .admin-shell { padding: 16px; } .admin-top { grid-template-columns: 1fr; } .admin-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 460px) { .admin-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main class="admin-shell">
+  <header class="admin-top">
+    <div>
+      <div class="eyebrow">RevTrace Admin</div>
+      <h1 id="page-title">Overview</h1>
+      <p class="lede">Backend-derived control room for ingestion, detection, recovery, settlement, escalations, and audit.</p>
+      <p class="subtle portal-links"><a href="/customer">Customer view</a> · <a href="/merchant">Merchant view</a></p>
+    </div>
+    <nav id="admin-nav" class="admin-nav"></nav>
+  </header>
+  <section id="overview-grid" class="admin-grid"></section>
+  <section id="content"></section>
+</main>
+<script src="/admin.js"></script>
+</body>
+</html>

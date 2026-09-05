@@ -20,3 +20,133 @@ def test_combined_trace_keeps_source_steps_and_attaches_detection(tmp_path, monk
     assert len(result) == 1
     assert result[0]["event_type"] == "payment_succeeded"
     assert result[0]["detection"]["detection_id"] == "det_001"
+
+
+def test_intent_snapshot_reports_current_median(tmp_path, monkeypatch):
+    payload = {
+        "merchant_a:customer_1": {
+            "customer_id": "customer_1",
+            "merchant_id": "merchant_a",
+            "score": 0.8,
+            "short_term_intent": 0.8,
+            "long_term_signal": 0.8,
+            "confidence": 0.9,
+            "last_updated": "2026-09-02T00:00:00Z",
+            "evidence_count": 3,
+            "session_id": "trace_1",
+            "model_version": "intent-v2",
+            "seen_event_ids": [],
+            "signal_counts": {},
+            "evidence": [],
+        },
+        "merchant_a:customer_2": {
+            "customer_id": "customer_2",
+            "merchant_id": "merchant_a",
+            "score": 0.4,
+            "short_term_intent": 0.4,
+            "long_term_signal": 0.4,
+            "confidence": 0.8,
+            "last_updated": "2026-09-02T00:00:00Z",
+            "evidence_count": 2,
+            "session_id": "trace_2",
+            "model_version": "intent-v2",
+            "seen_event_ids": [],
+            "signal_counts": {},
+            "evidence": [],
+        },
+    }
+    (tmp_path / "customer_intent.json").write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+
+    snapshot = server.intent_snapshot("customer_1", "merchant_a")
+
+    assert snapshot["intent_score"] == 0.8
+    assert snapshot["current_median"] == 0.6
+    assert snapshot["above_median"] is True
+
+
+def test_admin_state_contains_settlement_rca_and_escalation(tmp_path, monkeypatch):
+    settlement_event = {
+        "_topic": "settlement.events",
+        "event_type": "settlement_batch_failed",
+        "batch_id": "batch_001",
+        "transaction_date": "2026-09-04",
+        "transaction_count": 100,
+        "gross_captured_amount": 50000,
+        "settled_amount": 0,
+        "failed_amount": 50000,
+        "settlement_at_risk": 50000,
+        "status": "failure",
+        "batch_status": "FAILED",
+        "root_cause": {"candidate_root_cause": "bank_file_corruption", "confidence": 0.91},
+        "complaint": {"complaint_id": "cmp_batch_001", "status": "ESCALATED_TO_BANK", "audit_events": []},
+    }
+    (tmp_path / "ingestion_events.json").write_text(json.dumps([settlement_event]), encoding="utf-8")
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+
+    state = server.live_admin_state()
+
+    assert state["overview"]["settlement_at_risk"] == 50000
+    assert state["settlement"][0]["transaction_count"] == 100
+    assert state["settlement_rca"][0]["candidate_root_cause"] == "bank_file_corruption"
+    assert state["escalations"][0]["status"] == "ESCALATED_TO_BANK"
+
+
+def test_admin_state_does_not_materialize_demo_when_live_store_is_empty(tmp_path, monkeypatch):
+    (tmp_path / "ingestion_events.json").write_text("[]", encoding="utf-8")
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+
+    state = server.live_admin_state()
+
+    assert state["overview"]["transactions_processed"] == 0
+    assert state["settlement"] == []
+    assert state["escalations"] == []
+
+
+def test_admin_live_page_contract_fields(tmp_path, monkeypatch):
+    events = [
+        {
+            "_topic": "recovery.acknowledgements",
+            "event_type": "recovery_candidate_acknowledged",
+            "transaction_id": "txn_recovery",
+            "customer_id": "customer_1",
+            "status": "RECOVERED",
+            "action": "SWITCH_PROVIDER",
+            "recommended_action": "SWITCH_PROVIDER",
+            "intent_score": 0.72,
+            "intent_bucket": "ABOVE_MEDIAN",
+            "current_median": 0.51,
+            "notification_status": "N/A",
+            "payment_link_status": "N/A",
+            "recovered": True,
+            "amount_recovered": 5000,
+            "provider_before": "Gateway_B",
+            "provider_after": "Gateway_A",
+            "recovery_attempts": 1,
+            "agent_belief_count": 5,
+            "consensus_decision": "SWITCH_PROVIDER",
+            "policy_reason": "ALL_GUARDRAILS_PASSED",
+            "payment_result": "success",
+            "authorization_result": "success",
+            "capture_result": "success",
+        },
+        {
+            "_topic": "payment.events",
+            "stage": "payment",
+            "status": "failure",
+            "failure_code": "TIMEOUT",
+            "metadata": {"provider": "Gateway_B", "payment_method": "UPI", "latency_ms": 500},
+        },
+    ]
+    (tmp_path / "ingestion_events.json").write_text(json.dumps(events), encoding="utf-8")
+    monkeypatch.setattr(server, "DATA_DIR", tmp_path)
+
+    state = server.live_admin_state()
+    customer = state["customer_recovery"][0]
+    provider = state["providers"][0]
+    provider_recovery = state["provider_recovery"][0]
+
+    assert {"transaction_id", "customer_id", "intent_score", "intent_bucket", "recommended_action", "notification_status", "payment_link_status", "recovered", "amount_recovered"}.issubset(customer)
+    assert {"provider", "payment_method", "failure_rate", "timeout_rate", "latency_ms", "degradation_probability", "recommended_provider", "switch_attempts", "successful_switches"}.issubset(provider)
+    assert provider_recovery["provider_before"] == "Gateway_B"
+    assert provider_recovery["provider_after"] == "Gateway_A"

@@ -26,13 +26,13 @@ def test_end_to_end_detection_preserves_trace_and_emits_model_rca():
     diagnostics = {}
     detected = process_event(make_event("Gateway_B", "live"), engine, intent, degradation, model, diagnostics)
     assert detected is not None
-    assert detected["event_type"] == "authorization_detected"
+    assert detected["event_type"] == "authorization_failed"
     assert detected["failure_code"] == "ISSUER_TIMEOUT"
     assert detected["transaction_id"] == "txn_live"
     assert detected["trace_id"] == "trace_live"
-    assert detected["metadata"]["signals"]["degradation_model"]["probability"] > 0.5
-    assert detected["metadata"]["root_cause"]["component"] == "Gateway_B"
-    assert detected["metadata"]["signals"]["model_versions"]["degradation"] == "degradation-logreg-v1"
+    assert detected["signals"]["degradation_probability"] > 0.5
+    assert detected["root_cause"]["component"] == "Gateway_B"
+    assert detected["model_version"]["degradation"] == "degradation-logreg-v1"
     assert diagnostics["validation"] == "passed"
     assert diagnostics["signals"]["degradation_model"]["model_version"] == "degradation-logreg-v1"
     assert diagnostics["rca"]["component"] == "Gateway_B"
@@ -43,5 +43,5 @@ def test_single_healthy_provider_failure_has_no_invented_rca():
     model = HistoricalFailureModel().fit(synthetic_history())
     detected = process_event(make_event("Gateway_A", "isolated"), engine, intent, degradation, model)
     assert detected is not None
-    assert detected["metadata"]["root_cause"]["type"] == "unknown"
-    assert detected["metadata"]["root_cause"]["component"] is None
+    assert detected["root_cause"]["type"] == "unknown"
+    assert detected["root_cause"]["component"] is None

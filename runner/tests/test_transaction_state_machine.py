@@ -12,7 +12,6 @@ from runner.mock_pipeline import build_scenario_events, status_distribution
         ("payment_failure", "payment_failed", "authorization_requested"),
         ("authorization_failure", "authorization_failed", "capture_requested"),
         ("capture_failure", "capture_failed", "settlement_initiated"),
-        ("settlement_failure", "settlement_failed", "settlement_succeeded"),
     ],
 )
 def test_failure_stops_the_source_lifecycle(scenario, last_event, downstream):
@@ -25,6 +24,7 @@ def test_failure_stops_the_source_lifecycle(scenario, last_event, downstream):
 def test_normal_progression_has_no_implicit_unknown_statuses():
     events = build_scenario_events("normal", seed=317463)
     assert all(event["status"] == "success" for event in events)
+    assert events[-1]["transaction_status"] == "CAPTURED_FINAL"
     assert status_distribution(events) == {"success": 100.0, "failure": 0.0, "unknown": 0.0}
 
 

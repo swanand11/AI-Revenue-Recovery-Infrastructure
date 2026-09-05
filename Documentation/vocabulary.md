@@ -21,6 +21,15 @@ STATUS
 success
 failure
 unknown
+CAPTURED_FINAL
+
+
+SETTLEMENT BATCH STATUS
+────────────────────
+pending
+processing
+succeeded
+failed
 
 
 FAILURE CODES

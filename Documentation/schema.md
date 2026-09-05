@@ -53,6 +53,7 @@ demo detection event schema
 
   "signals": {
     "customer_intent_score": 0.81,
+    "current_median_intent": 0.57,
     "payment_degradation_score": 0.94
   },
 
@@ -70,6 +71,41 @@ demo detection event schema
   "currency": "INR",
 
   "model_version": "detection_v1"
+}
+
+Settlement batch event schema. Completed batches contain exactly 100 captured
+transactions. `status` stays in the source event vocabulary
+`success | failure | unknown`; `batch_status` carries the settlement batch
+state machine.
+{
+  "event_id": "evt_01JXYZ...",
+  "event_version": 1,
+  "timestamp": "2026-09-04T14:31:02.481Z",
+  "service": "settlement-service",
+  "stage": "settlement",
+  "event_type": "settlement_batch_failed",
+  "batch_id": "batch_001",
+  "transaction_date": "2026-09-04",
+  "transaction_count": 100,
+  "gross_captured_amount": 50000,
+  "settled_amount": 0,
+  "failed_amount": 50000,
+  "pending_amount": 0,
+  "settlement_at_risk": 50000,
+  "currency": "INR",
+  "status": "failed",
+  "batch_status": "FAILED",
+  "failure_code": "CHECKSUM_MISMATCH",
+  "root_cause": {
+    "candidate_root_cause": "bank_file_corruption",
+    "confidence": 0.91,
+    "evidence": []
+  },
+  "complaint": {
+    "complaint_id": "cmp_batch_001",
+    "status": "ESCALATED_TO_BANK",
+    "owner": "Bank Operations"
+  }
 }
 syntehetic payment historical dataset demo record 
 {

@@ -29,7 +29,7 @@ class KafkaPublisher:
         raise last_error
 
     def publish(self, topic: str, event: dict) -> None:
-        key = event["transaction_id"]
+        key = event.get("transaction_id") or event["batch_id"]
         self.producer.send(topic=topic, key=key, value=event)
         self.producer.flush()
 

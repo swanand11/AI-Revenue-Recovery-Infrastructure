@@ -1,13 +1,74 @@
+from __future__ import annotations
+
 import uuid
-from recovery.models.contracts import ActionCommand,ExecutionResult,utc_now,Recommendation
+from dataclasses import dataclass
+from typing import Any
+
+from common.settlement import SettlementBatch, SettlementBatcher
+from recovery.models.contracts import ActionCommand, ExecutionResult, Recommendation, utc_now
+
+
+@dataclass
+class SettlementRecoveryResult:
+    batch: SettlementBatch
+    action: Recommendation
+    amount_settled_delta: float
+    status: str
+
+
 class SyntheticExecutor:
- def __init__(self,c):self.c=c;self.executed=set()
- def command(self,p,ctx,tx,v):
-  if not p.allowed or not p.action:raise PermissionError('policy authorization required')
-  return ActionCommand('act_'+uuid.uuid4().hex,tx,v,p.action,ctx.get('current_provider',''),ctx.get('target_provider'),'policy-v1',utc_now())
- def execute(self,cmd,p,ctx):
-  if not p.allowed or cmd.authorized_by!='policy-v1' or cmd.action not in self.c.allowed_actions:raise PermissionError('invalid action command')
-  key=(cmd.transaction_id,cmd.state_version,cmd.action_id)
-  if key in self.executed:return ExecutionResult(cmd.action_id,cmd.transaction_id,cmd.action,'REJECTED',0,'DUPLICATE_ACTION')
-  self.executed.add(key);ok=bool(ctx.get('synthetic_success',cmd.action==Recommendation.SWITCH_PROVIDER and cmd.target_provider=='Gateway_A'))
-  return ExecutionResult(cmd.action_id,cmd.transaction_id,cmd.action,'SUCCESS' if ok else 'FAILURE',self.c.recovery_cost,'SYNTHETIC_EXECUTED')
+    """Phase 2 executor for synthetic recovery actions.
+
+    Transaction recovery actions remain bounded by policy. Settlement recovery
+    is deliberately batch-scoped: retry/escalate commands require a batch id and
+    never update member transaction state.
+    """
+
+    def __init__(self, config):
+        self.config = config
+        self.executed: set[tuple[str, int, str]] = set()
+
+    def command(self, policy, context: dict[str, Any], transaction_id: str, state_version: int) -> ActionCommand:
+        if not policy.allowed or not policy.action:
+            raise PermissionError("policy authorization required")
+        return ActionCommand(
+            action_id=f"act_{uuid.uuid4().hex}",
+            transaction_id=transaction_id,
+            state_version=state_version,
+            action=policy.action,
+            current_provider=context.get("current_provider", ""),
+            target_provider=context.get("target_provider"),
+            authorized_by="policy-v1",
+            timestamp=utc_now(),
+        )
+
+    def execute(self, command: ActionCommand, policy, context: dict[str, Any]) -> ExecutionResult:
+        if not policy.allowed or command.authorized_by != "policy-v1" or command.action not in self.config.allowed_actions:
+            raise PermissionError("invalid action command")
+        key = (command.transaction_id, command.state_version, command.action_id)
+        if key in self.executed:
+            return ExecutionResult(command.action_id, command.transaction_id, command.action, "REJECTED", 0, "DUPLICATE_ACTION")
+        self.executed.add(key)
+        ok = bool(context.get("synthetic_success", False))
+        return ExecutionResult(
+            command.action_id,
+            command.transaction_id,
+            command.action,
+            "SUCCESS" if ok else "FAILURE",
+            self.config.recovery_cost,
+            "SYNTHETIC_EXECUTED",
+        )
+
+    def settlement_retry(
+        self,
+        batcher: SettlementBatcher,
+        batch_id: str,
+        *,
+        should_succeed: bool,
+    ) -> SettlementRecoveryResult:
+        batch = batcher.retry_batch(batch_id, should_succeed)
+        delta = batch.total_amount if batch.status == "succeeded" else 0.0
+        return SettlementRecoveryResult(batch, Recommendation.SETTLEMENT_RETRY, delta, batch.status)
+
+    def settlement_escalate(self, batch: SettlementBatch) -> SettlementRecoveryResult:
+        return SettlementRecoveryResult(batch, Recommendation.SETTLEMENT_ESCALATE, 0.0, "escalated")

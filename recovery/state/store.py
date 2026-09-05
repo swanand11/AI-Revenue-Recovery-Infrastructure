@@ -69,6 +69,7 @@ class MemoryStateStore:
             current_stage=event.get("stage"),
             current_transaction_status=event.get("status") or event.get("transaction_status"),
             current_failure_code=event.get("failure_code"),
+            amount_at_risk=float(event.get("amount") or event.get("amount_at_risk") or 0.0),
             lifecycle_events=[self._lifecycle_record(event)],
         )
         self.states[transaction_id] = state
@@ -94,14 +95,16 @@ class MemoryStateStore:
         action = result.get("action")
         amount_recovered = float((outcome or {}).get("amount_recovered") or 0.0)
         recovery_cost = float((action or {}).get("recovery_cost") or 0.0)
-        status = RecoveryStatus.COMPLETED
+        status = RecoveryStatus.RECOVERED if (outcome or {}).get("status") == "RECOVERED" else RecoveryStatus.COMPLETED
+        recovery_attempts = state.recovery_attempts + (1 if result.get("recovery_executed") else 0)
         updated = RecoveryState(
             **{
                 **state.to_dict(),
                 "status": status,
                 "updated_at": result.get("assessed_at") or state.updated_at,
-                "recovery_attempts": state.recovery_attempts,
+                "recovery_attempts": recovery_attempts,
                 "amount_recovered": amount_recovered,
+                "amount_at_risk": float(state.amount_at_risk or 0.0) or float((action or {}).get("amount_at_risk") or 0.0),
                 "recovery_cost": recovery_cost,
                 "net_recovered": amount_recovered - recovery_cost,
                 "consensus": result.get("consensus"),
@@ -171,6 +174,7 @@ class RedisStateStore:
             current_stage=event.get("stage"),
             current_transaction_status=event.get("status") or event.get("transaction_status"),
             current_failure_code=event.get("failure_code"),
+            amount_at_risk=float(event.get("amount") or event.get("amount_at_risk") or 0.0),
             lifecycle_events=[self._lifecycle_record(event)],
         )
         payload = json.dumps(state.to_dict(), separators=(",", ":"))
@@ -208,13 +212,15 @@ class RedisStateStore:
         action = result.get("action")
         amount_recovered = float((outcome or {}).get("amount_recovered") or 0.0)
         recovery_cost = float((action or {}).get("recovery_cost") or 0.0)
-        status = RecoveryStatus.COMPLETED
+        status = RecoveryStatus.RECOVERED if (outcome or {}).get("status") == "RECOVERED" else RecoveryStatus.COMPLETED
+        recovery_attempts = state.recovery_attempts + (1 if result.get("recovery_executed") else 0)
         payload = {
             **state.to_dict(),
             "status": status.value,
             "updated_at": result.get("assessed_at") or state.updated_at,
-            "recovery_attempts": state.recovery_attempts,
+            "recovery_attempts": recovery_attempts,
             "amount_recovered": amount_recovered,
+            "amount_at_risk": float(state.amount_at_risk or 0.0) or float((action or {}).get("amount_at_risk") or 0.0),
             "recovery_cost": recovery_cost,
             "net_recovered": amount_recovered - recovery_cost,
             "consensus": result.get("consensus"),

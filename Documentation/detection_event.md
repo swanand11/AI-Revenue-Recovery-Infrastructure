@@ -7,7 +7,7 @@ detection event schema
 
   "service": "detection-service",
   "stage": "payment",
-  "event_type": "payment_detected",
+  "event_type": "payment_failed",
 
   "merchant_id": "merchant_001",
   "customer_id": "customer_9182",
@@ -22,11 +22,16 @@ detection event schema
   "amount": 5000,
   "currency": "INR",
 
-  "status": "unknown",
-  "failure_code": null,
+  "status": "failure",
+  "failure_code": "GATEWAY_ERROR",
 
   "metadata": {
+    "source_event_type": "payment_failed",
+    "source_status": "failure",
     "signals": {},
     "root_cause": {}
   }
 }
+
+Detection is an analytical annotation over a real failed source event. It is
+not a lifecycle stage and it does not emit fake `*_detected` event types.

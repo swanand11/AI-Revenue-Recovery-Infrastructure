@@ -8,6 +8,7 @@ COPY common ./common
 COPY dashboard ./dashboard
 COPY recovery ./recovery
 COPY runner ./runner
+COPY services/payment ./services/payment
 
 EXPOSE 8080
 

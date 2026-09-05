@@ -14,7 +14,12 @@ from common.config import SERVICE_CONFIG
 from runner.store import append_record, read_json, write_json
 
 
-TOPICS = [cfg["topic"] for cfg in SERVICE_CONFIG.values()]
+TOPICS = [
+    *[cfg["topic"] for cfg in SERVICE_CONFIG.values()],
+    "detection.events",
+    "recovery.events",
+    "recovery.acknowledgements",
+]
 DEFAULT_LIMIT = None
 
 

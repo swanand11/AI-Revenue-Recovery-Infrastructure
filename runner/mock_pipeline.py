@@ -14,7 +14,7 @@ from common.wal import WalWriter
 
 SCENARIOS = {
     "normal", "full_success", "random_failure", "checkout_failure", "payment_failure",
-    "authorization_failure", "capture_failure", "settlement_failure", "recovery_retry",
+    "authorization_failure", "capture_failure", "settlement_failure", "recovery_retry", "live_mix",
 }
 FAILURE_CODES = ("TIMEOUT", "ISSUER_TIMEOUT", "GATEWAY_ERROR", "ISSUER_DECLINED", "INSUFFICIENT_FUNDS", "SERVICE_ERROR")
 
@@ -36,9 +36,6 @@ _REQUIRED_PREDECESSOR = {
     "capture_requested": "authorization_succeeded",
     "capture_succeeded": "capture_requested",
     "capture_failed": "capture_requested",
-    "settlement_initiated": "capture_succeeded",
-    "settlement_succeeded": "settlement_initiated",
-    "settlement_failed": "settlement_initiated",
 }
 @dataclass
 class TransactionStateStore:
@@ -107,6 +104,18 @@ class TransactionStateStore:
 def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, str, str, str | None]]:
     if scenario == "full_success":
         scenario = "normal"
+    if scenario == "live_mix":
+        cycle = (seed or 0) % 10
+        if cycle in {0, 1, 2, 3, 4, 5}:
+            scenario = "normal"
+        elif cycle == 6:
+            scenario = "checkout_failure"
+        elif cycle == 7:
+            scenario = "payment_failure"
+        elif cycle == 8:
+            scenario = "authorization_failure"
+        else:
+            scenario = "capture_failure"
     if scenario not in SCENARIOS:
         raise ValueError(f"unknown mock scenario: {scenario}")
     steps = [
@@ -118,7 +127,7 @@ def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, st
     ]
     if scenario == "random_failure":
         rng = random.Random(seed)
-        failure_stage = rng.choice(("checkout", "payment", "authorization", "capture", "settlement"))
+        failure_stage = rng.choice(("checkout", "payment", "authorization", "capture"))
         failure_code = rng.choice(FAILURE_CODES)
         if failure_stage == "checkout":
             return [("checkout-service", "checkout_started", "success", None),
@@ -132,9 +141,7 @@ def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, st
                   ("capture-service", "capture_requested", "success", None)]
         if failure_stage == "capture":
             return steps + [("capture-service", "capture_failed", "failure", failure_code)]
-        steps += [("capture-service", "capture_succeeded", "success", None),
-                  ("settlement-service", "settlement_initiated", "success", None)]
-        return steps + [("settlement-service", "settlement_failed", "failure", failure_code)]
+        return steps + [("capture-service", "capture_succeeded", "success", None)]
     if scenario == "checkout_failure":
         return [("checkout-service", "checkout_started", "success", None),
                 ("checkout-service", "checkout_failed", "failure", "SERVICE_ERROR")]
@@ -148,16 +155,14 @@ def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, st
             ("authorization-service", "authorization_failed", "failure", "ISSUER_TIMEOUT"),
             ("authorization-service", "authorization_requested", "success", None),
             ("authorization-service", "authorization_succeeded", "success", None),
+            ("capture-service", "capture_requested", "success", None),
+            ("capture-service", "capture_succeeded", "success", None),
         ]
     steps += [("authorization-service", "authorization_succeeded", "success", None),
               ("capture-service", "capture_requested", "success", None)]
     if scenario == "capture_failure":
         return steps + [("capture-service", "capture_failed", "failure", "GATEWAY_ERROR")]
-    steps += [("capture-service", "capture_succeeded", "success", None),
-              ("settlement-service", "settlement_initiated", "success", None)]
-    if scenario == "settlement_failure":
-        return steps + [("settlement-service", "settlement_failed", "failure", "SERVICE_ERROR")]
-    return steps + [("settlement-service", "settlement_succeeded", "success", None)]
+    return steps + [("capture-service", "capture_succeeded", "success", None)]
 
 
 def status_distribution(events: list[dict]) -> dict[str, float]:
@@ -199,6 +204,10 @@ def build_scenario_events(scenario: str, seed: int, transaction_id: str | None =
                 "recovery_attempt": scenario == "recovery_retry" and attempt_number > 1,
             },
         )
+        if event_type == "capture_succeeded":
+            event["transaction_status"] = "CAPTURED_FINAL"
+            event["captured_amount"] = event["amount"]
+            event["captured_at"] = event["timestamp"]
         event["attempt_id"] = event["metadata"]["attempt_id"]
         if state_store is None:
             state_store = TransactionStateStore(transaction_id=event["transaction_id"])
@@ -228,9 +237,8 @@ def run_once(scenario: str, seed: int, wal: WalWriter, publisher: KafkaPublisher
 
 
 def main() -> None:
-    # The default is a visible demo failure; use MOCK_SCENARIO=normal for a healthy run.
-    # The default demo varies the failure stage/code while remaining reproducible per seed.
-    scenario = os.environ.get("MOCK_SCENARIO", "random_failure")
+    # The default live mix continuously emits successes plus valid terminal failures.
+    scenario = os.environ.get("MOCK_SCENARIO", "live_mix")
     interval = float(os.environ.get("MOCK_INTERVAL_SECONDS", "5"))
     seed = int(os.environ.get("MOCK_SEED", "753251"))
     transaction_id = os.environ.get("MOCK_TRANSACTION_ID")

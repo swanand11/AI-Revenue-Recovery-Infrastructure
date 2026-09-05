@@ -7,7 +7,9 @@ from dataclasses import asdict
 from typing import Any
 
 from common.wal import WalWriter
+from detection.state.customer_intent import CustomerIntentStore
 from recovery.agents.economics import evaluate_economics
+from recovery.agents.provider.scoring import evaluate_provider
 from recovery.agents.risk import evaluate_risk
 from recovery.agents.transaction import evaluate_transaction
 from recovery.config import RecoveryConfig
@@ -25,7 +27,7 @@ except ModuleNotFoundError:
 
 
 class RecoveryCoordinator:
-    """Coordinates Phase 1 recovery assessment without executing actions."""
+    """Coordinates deterministic recovery assessment and execution."""
 
     def __init__(
         self,
@@ -37,7 +39,9 @@ class RecoveryCoordinator:
         self.state_store = state_store
         self.config = config or RecoveryConfig()
         self.pipeline = RecoveryPipeline(self.config)
-        self.wal = wal or WalWriter(os.environ.get("RECOVERY_WAL_PATH", "wal/events.jsonl"))
+        wal_path = os.environ.get("RECOVERY_WAL_PATH") or os.environ.get("WAL_PATH") or "/tmp/recovery-wal/events.jsonl"
+        self.wal = wal or WalWriter(wal_path)
+        self.intent_store = CustomerIntentStore()
 
         self.intent_channel = None
         self.intent_stub = None
@@ -74,12 +78,17 @@ class RecoveryCoordinator:
     def gather_beliefs(self, state: RecoveryState, event: dict[str, Any]) -> list[Belief]:
         self._commit("agents_evaluating", state, {"agent_count": 5})
         beliefs: list[Belief] = []
+        metadata = event.get("metadata", {})
+        enriched_event = {
+            **event,
+            "target_provider": event.get("target_provider") or self._alternative_provider(metadata.get("provider", event.get("payment_provider", ""))),
+        }
         jobs = {
-            "intent-agent": lambda: self._call_intent_agent(state, event),
-            "provider-agent": lambda: self._call_provider_agent(state, event),
-            "transaction-agent": lambda: evaluate_transaction(state, event),
-            "economics-agent": lambda: evaluate_economics(state, event, self.config),
-            "risk-agent": lambda: evaluate_risk(state, event, self.config),
+            "intent-agent": lambda: self._call_intent_agent(state, enriched_event),
+            "provider-agent": lambda: self._call_provider_agent(state, enriched_event),
+            "transaction-agent": lambda: evaluate_transaction(state, enriched_event),
+            "economics-agent": lambda: evaluate_economics(state, enriched_event, self.config),
+            "risk-agent": lambda: evaluate_risk(state, enriched_event, self.config),
         }
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
@@ -98,7 +107,7 @@ class RecoveryCoordinator:
     def _call_intent_agent(self, state: RecoveryState, event: dict[str, Any]) -> Belief | None:
         if self.intent_stub is None:
             self._commit("agent_unavailable", state, {"agent_id": "intent-agent", "error": "grpc_unavailable"})
-            return None
+            return self._local_intent_belief(state, event)
         context = intent_pb2.IntentContext(
             customer_id=state.customer_id or "",
             transaction_id=state.transaction_id,
@@ -142,12 +151,12 @@ class RecoveryCoordinator:
             )
         except grpc.RpcError as exc:
             self._commit("agent_unavailable", state, {"agent_id": "intent-agent", "error": str(exc)})
-            return None
+            return self._local_intent_belief(state, event)
 
     def _call_provider_agent(self, state: RecoveryState, event: dict[str, Any]) -> Belief | None:
         if self.provider_stub is None:
             self._commit("agent_unavailable", state, {"agent_id": "provider-agent", "error": "grpc_unavailable"})
-            return None
+            return self._local_provider_belief(state, event)
         metadata = event.get("metadata", {})
         signals = metadata.get("signals", event.get("signals", {}))
         root_cause = metadata.get("root_cause", event.get("root_cause", {}))
@@ -194,7 +203,84 @@ class RecoveryCoordinator:
             )
         except grpc.RpcError as exc:
             self._commit("agent_unavailable", state, {"agent_id": "provider-agent", "error": str(exc)})
-            return None
+            return self._local_provider_belief(state, event)
+
+    def _local_intent_belief(self, state: RecoveryState, event: dict[str, Any]) -> Belief:
+        metadata = event.get("metadata", {})
+        if "intent_score" in event and "current_median" in event:
+            intent_score = float(event.get("intent_score") or 0.5)
+            current_median = float(event.get("current_median") or 0.5)
+            confidence = float(event.get("intent_confidence") or 0.75)
+            evidence = {
+                "intent_score": intent_score,
+                "current_median": current_median,
+                "confidence": confidence,
+                "history_status": "INLINE_SIGNAL",
+            }
+        else:
+            if state.customer_id:
+                self.intent_store.update(
+                    state.customer_id,
+                    {
+                        **event,
+                        "customer_id": state.customer_id,
+                        "merchant_id": state.merchant_id or event.get("merchant_id", ""),
+                    },
+                    timestamp_epoch=0.0,
+                )
+            snapshot = self.intent_store.snapshot(state.customer_id or "", merchant_id=state.merchant_id or event.get("merchant_id"))
+            intent_score = float(snapshot["intent_score"])
+            current_median = float(snapshot["current_median"])
+            confidence = float(snapshot["confidence"])
+            evidence = snapshot
+        recommendation = Recommendation.SEND_PAYMENT_LINK if intent_score > current_median else Recommendation.DO_NOTHING
+        reason_code = "INTENT_ABOVE_CURRENT_MEDIAN" if recommendation == Recommendation.SEND_PAYMENT_LINK else "INTENT_BELOW_CURRENT_MEDIAN"
+        return Belief(
+            belief_id=f"belief_intent_local_{state.state_version}",
+            agent_id="intent-agent",
+            agent_version="intent-local-v1",
+            transaction_id=state.transaction_id,
+            state_version=state.state_version,
+            recommendation=recommendation,
+            confidence=confidence,
+            reason_code=reason_code,
+            timestamp=utc_now(),
+            evidence=evidence,
+        )
+
+    def _local_provider_belief(self, state: RecoveryState, event: dict[str, Any]) -> Belief:
+        class ProviderContextShim:
+            def __init__(self, payload: dict[str, Any]) -> None:
+                self.current_failure = payload["current_failure"]
+                self.provider_metadata = payload["provider_metadata"]
+
+        metadata = event.get("metadata", {})
+        provider_context = ProviderContextShim(
+            {
+                "current_failure": {
+                    "stage": event.get("stage", ""),
+                    "failure_code": event.get("failure_code", ""),
+                },
+                "provider_metadata": {
+                    "payment_method": metadata.get("payment_method", "UNKNOWN"),
+                    "provider": metadata.get("provider", "UNKNOWN"),
+                    "signals": json.dumps(event.get("signals", metadata.get("signals", {}))),
+                },
+            }
+        )
+        result = evaluate_provider(provider_context)
+        return Belief(
+            belief_id=f"belief_provider_local_{state.state_version}",
+            agent_id="provider-agent",
+            agent_version="provider-local-v1",
+            transaction_id=state.transaction_id,
+            state_version=state.state_version,
+            recommendation=Recommendation(result["recommendation"]),
+            confidence=float(result["confidence"]),
+            reason_code=result["reason_code"],
+            timestamp=utc_now(),
+            evidence=result["evidence"],
+        )
 
     def _context(self, state: RecoveryState, event: dict[str, Any]) -> dict[str, Any]:
         metadata = event.get("metadata", {})
@@ -206,18 +292,22 @@ class RecoveryCoordinator:
             "stage": event.get("stage"),
             "transaction_status": current_status,
             "failure_code": event.get("failure_code"),
+            "intent_score": (event.get("signals") or {}).get("customer_intent_score", event.get("intent_score")),
+            "current_median": (event.get("signals") or {}).get("current_median_intent", event.get("current_median")),
             "amount": float(event.get("amount") or event.get("amount_at_risk") or 0.0),
             "currency": event.get("currency", "INR"),
             "recovery_attempts": state.recovery_attempts,
             "current_provider": metadata.get("provider", event.get("payment_provider", "")),
             "target_provider": event.get("target_provider") or self._alternative_provider(metadata.get("provider", event.get("payment_provider", ""))),
-            "expected_roi": event.get("expected_roi"),
+            "expected_roi": event.get("expected_roi", float(event.get("amount") or event.get("amount_at_risk") or 0.0) - self.config.recovery_cost),
             "already_successful": current_status in terminal_statuses,
             "already_recovered": state.status in {RecoveryStatus.RECOVERED, RecoveryStatus.COMPLETED},
             "current_stage": state.current_stage or event.get("stage"),
             "lifecycle_events": state.lifecycle_events,
             "synthetic_success": event.get("synthetic_success", True),
-            "synthetic_verified": event.get("synthetic_verified", True),
+            # Recovery execution proves only that an action was taken. Revenue is
+            # recovered later, when a follow-up capture_succeeded event exists.
+            "synthetic_verified": event.get("synthetic_verified", False),
         }
 
     @staticmethod
@@ -225,6 +315,8 @@ class RecoveryCoordinator:
         if current == "Gateway_A":
             return "Gateway_B"
         if current == "Gateway_B":
+            return "Gateway_A"
+        if current == "Gateway_C":
             return "Gateway_A"
         return None
 

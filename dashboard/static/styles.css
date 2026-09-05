@@ -281,6 +281,150 @@ a {
   color: var(--accent);
 }
 
+.muted {
+  color: var(--muted);
+}
+
+.trail-link {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  color: white;
+  background: var(--accent);
+  border-radius: 999px;
+  padding: 8px 12px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.84rem;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.status-badge.good,
+.portal-card.good {
+  background: var(--success-soft);
+  color: #166534;
+}
+
+.status-badge.bad,
+.portal-card.bad {
+  background: var(--failure-soft);
+  color: var(--failure);
+}
+
+.status-badge.wait,
+.portal-card.wait {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.failed-row {
+  background: #fff8f7;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.highlight-panel,
+.escalation-card {
+  border-color: #f4b4ac;
+  box-shadow: 0 10px 28px rgba(180, 35, 24, 0.08);
+}
+
+.danger,
+.danger-text {
+  color: var(--failure);
+}
+
+.admin-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 16px 0 0;
+}
+
+.trail-map {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.trail-node {
+  position: relative;
+  min-height: 92px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(180deg, #ffffff, #f8fbfd);
+}
+
+.trail-node span {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 800;
+  margin-bottom: 12px;
+}
+
+.trail-node.blocked {
+  border-color: #f4b4ac;
+  background: #fff8f7;
+}
+
+.portal-shell {
+  max-width: 1180px;
+}
+
+.portal-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.portal-card {
+  display: grid;
+  gap: 12px;
+}
+
+.portal-steps {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.portal-steps span {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: white;
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.message-card {
+  min-width: 0;
+}
+
+.portal-links {
+  margin-top: 10px;
+}
+
 @media (max-width: 980px) {
   .hero,
   .grid {
@@ -294,5 +438,11 @@ a {
 
   .shell {
     padding: 18px;
+  }
+
+  .trail-map,
+  .portal-grid,
+  .admin-grid.compact {
+    grid-template-columns: 1fr;
   }
 }

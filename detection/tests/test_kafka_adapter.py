@@ -27,4 +27,6 @@ def test_detection_event_shape():
     }
     det = build_detection_event(src, {"failure": {"candidate": True}}, {"confidence": 0.9})
     assert det["transaction_id"] == "txn_1"
-    assert "signals" in det["metadata"]
+    assert det["event_type"] == "payment_failed"
+    assert "signals" in det
+    assert det["source"]["event_id"] == "evt_1"

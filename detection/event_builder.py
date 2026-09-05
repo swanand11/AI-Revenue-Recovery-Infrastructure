@@ -59,6 +59,7 @@ def build_detection_event(
         },
         "signals": {
             "customer_intent_score": intent_signal.get("intent_score"),
+            "current_median_intent": intent_signal.get("current_median_intent"),
             "short_term_intent": intent_signal.get("short_term_intent"),
             "long_term_signal": intent_signal.get("long_term_signal"),
             "intent_confidence": intent_signal.get("confidence"),

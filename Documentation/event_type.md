@@ -10,6 +10,6 @@ authorization_failed
 capture_requested
 capture_succeeded
 capture_failed
-settlement_initiated
-settlement_succeeded
-settlement_failed
+settlement_batch_processing
+settlement_batch_succeeded
+settlement_batch_failed

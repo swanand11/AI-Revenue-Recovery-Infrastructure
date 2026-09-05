@@ -47,14 +47,12 @@ TERMINAL_OUTCOME_BY_STATUS = {
         "payment_succeeded",
         "authorization_succeeded",
         "capture_succeeded",
-        "settlement_succeeded",
     },
     "failure": {
         "checkout_failed",
         "payment_failed",
         "authorization_failed",
         "capture_failed",
-        "settlement_failed",
     },
 }
 
@@ -79,7 +77,6 @@ def ingestion_event_validation_error(event: dict[str, Any]) -> str | None:
             "payment_created",
             "authorization_requested",
             "capture_requested",
-            "settlement_initiated",
         }
         if event.get("event_type") in started_events and event.get("status") == "success":
             pass
@@ -125,12 +122,19 @@ def process_event(
     payment_method = event.get("metadata", {}).get("payment_method", "UNKNOWN")
     provider = event.get("metadata", {}).get("provider", "UNKNOWN")
     timestamp_epoch = parse_timestamp(event["timestamp"])
+    prior_intent = intent_store.snapshot(event["customer_id"], merchant_id=event.get("merchant_id"), timestamp_epoch=timestamp_epoch)
+    current_median_before_event = intent_store.current_median_excluding(event["customer_id"], event.get("merchant_id"), timestamp_epoch)
     signals = {
         "failure": detect_failure(event),
         "degradation": detect_degradation(degradation_store, event, payment_method, provider),
         "intent": update_customer_intent(intent_store, event, timestamp_epoch=timestamp_epoch),
         "model_versions": {"degradation": MODEL_VERSION, "intent": INTENT_MODEL_VERSION},
     }
+    signals["intent"]["current_median_intent"] = current_median_before_event
+    if event.get("event_type") == "checkout_failed":
+        signals["intent"]["intent_score"] = prior_intent["intent_score"]
+        signals["intent"]["short_term_intent"] = prior_intent["short_term_intent"]
+        signals["intent"]["long_term_signal"] = prior_intent["long_term_signal"]
     if model is not None:
         model_row = {
             "payment_method": payment_method,

@@ -44,7 +44,7 @@ def test_source_identity_survives_wal_serialization_and_detection(tmp_path):
 
 
 def test_traceability_corruption_is_rejected_by_invariant():
-    detected = build_detection_event(SOURCE, {"failure": {"candidate": True}}, {"type": "unknown"}, status="failure")
+    detected = build_detection_event(SOURCE, {"failure": {"candidate": True}}, {"type": "unknown"})
     corrupted = {**detected, "transaction_id": "txn_corrupt"}
     assert "transaction_id_mismatch" in traceability_errors(SOURCE, corrupted)
 

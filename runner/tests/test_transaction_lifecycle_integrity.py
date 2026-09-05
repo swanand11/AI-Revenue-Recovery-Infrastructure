@@ -17,7 +17,7 @@ def test_complete_lifecycle_has_causal_order_and_topic_contract():
     expected_types = [
         "checkout_started", "checkout_completed", "payment_created", "payment_succeeded",
         "authorization_requested", "authorization_succeeded", "capture_requested",
-        "capture_succeeded", "settlement_initiated", "settlement_succeeded",
+        "capture_succeeded",
     ]
     assert [event["event_type"] for event in events] == expected_types
     assert {event["transaction_id"] for event in events} == {"txn_359099"}
@@ -27,8 +27,9 @@ def test_complete_lifecycle_has_causal_order_and_topic_contract():
     assert [SERVICE_CONFIG[event["service"]]["topic"] for event in events] == [
         "checkout.events", "checkout.events", "payment.events", "payment.events",
         "authorization.events", "authorization.events", "capture.events", "capture.events",
-        "settlement.events", "settlement.events",
     ]
+    assert events[-1]["status"] == "success"
+    assert events[-1]["transaction_status"] == "CAPTURED_FINAL"
     assert all(event["transaction_id"] == "txn_359099" for event in events)
 
 
@@ -38,7 +39,6 @@ def test_complete_lifecycle_has_causal_order_and_topic_contract():
         ("payment_failure", "payment_failed", "payment_created"),
         ("authorization_failure", "authorization_failed", "authorization_requested"),
         ("capture_failure", "capture_failed", "capture_requested"),
-        ("settlement_failure", "settlement_failed", "settlement_initiated"),
     ],
 )
 def test_failure_is_terminal_and_never_emits_downstream_events(scenario, terminal_event, last_allowed_type):
