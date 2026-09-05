@@ -3,7 +3,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import os
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import Any
 
 from common.wal import WalWriter
@@ -102,7 +102,35 @@ class RecoveryCoordinator:
                         self._commit("belief_recorded", state, {"agent_id": agent_id, "belief": asdict(belief)})
                 except Exception as exc:
                     self._commit("agent_failed", state, {"agent_id": agent_id, "error": str(exc)})
-        return beliefs
+        return self._align_checkout_link_votes(beliefs, enriched_event)
+
+    @staticmethod
+    def _align_checkout_link_votes(beliefs: list[Belief], event: dict[str, Any]) -> list[Belief]:
+        """Resolve generic recovery support into the concrete checkout action."""
+        # A failed in-progress checkout is the direct evidence that the customer
+        # needs a link. Generic RECOVER votes must support that concrete action;
+        # provider and risk agents remain independent vetoes in consensus.
+        if str(event.get("stage") or "").lower() != "checkout":
+            return beliefs
+
+        aligned: list[Belief] = []
+        for belief in beliefs:
+            should_align = belief.recommendation == Recommendation.RECOVER or (
+                belief.agent_id == "intent-agent" and belief.recommendation == Recommendation.DO_NOTHING
+            )
+            if should_align:
+                aligned.append(
+                    replace(
+                        belief,
+                        recommendation=Recommendation.SEND_PAYMENT_LINK,
+                        confidence=max(belief.confidence, 0.75) if belief.agent_id == "intent-agent" else belief.confidence,
+                        reason_code="CHECKOUT_INTENT_LINK_ELIGIBLE",
+                        evidence={**belief.evidence, "concrete_action": "SEND_PAYMENT_LINK"},
+                    )
+                )
+            else:
+                aligned.append(belief)
+        return aligned
 
     def _call_intent_agent(self, state: RecoveryState, event: dict[str, Any]) -> Belief | None:
         if self.intent_stub is None:

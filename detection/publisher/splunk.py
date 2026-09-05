@@ -82,13 +82,15 @@ class SplunkHeCAdapter:
     ca_cert_path: str | None = None
 
     def emit(self, event: dict, fields: dict[str, str] | None = None) -> None:
+        event_time = normalize_hec_time(event.get("timestamp"))
         payload = {
-            "time": normalize_hec_time(event.get("timestamp")),
             "host": "detection-service",
             "index": self.index,
             "sourcetype": self.sourcetype,
             "event": event,
         }
+        if event_time is not None:
+            payload["time"] = event_time
         if fields:
             payload["fields"] = fields
         request = urllib.request.Request(

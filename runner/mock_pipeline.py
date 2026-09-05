@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import random
 import time
+import uuid
 from dataclasses import dataclass, replace
 
 from common.config import SERVICE_CONFIG
@@ -15,6 +16,7 @@ from common.wal import WalWriter
 SCENARIOS = {
     "normal", "full_success", "random_failure", "checkout_failure", "payment_failure",
     "authorization_failure", "capture_failure", "settlement_failure", "recovery_retry", "live_mix",
+    "batch_minute",
 }
 FAILURE_CODES = ("TIMEOUT", "ISSUER_TIMEOUT", "GATEWAY_ERROR", "ISSUER_DECLINED", "INSUFFICIENT_FUNDS", "SERVICE_ERROR")
 
@@ -102,7 +104,7 @@ class TransactionStateStore:
 
 
 def scenario_steps(scenario: str, seed: int | None = None) -> list[tuple[str, str, str, str | None]]:
-    if scenario == "full_success":
+    if scenario in {"full_success", "batch_minute"}:
         scenario = "normal"
     if scenario == "live_mix":
         cycle = (seed or 0) % 10
@@ -237,14 +239,23 @@ def run_once(scenario: str, seed: int, wal: WalWriter, publisher: KafkaPublisher
 
 
 def main() -> None:
-    # The default live mix continuously emits successes plus valid terminal failures.
+    # Feed roles share the same real event path; the settlement feed is normal-only
+    # so batches do not depend on the failure mix reaching capture.
     scenario = os.environ.get("MOCK_SCENARIO", "live_mix")
     interval = float(os.environ.get("MOCK_INTERVAL_SECONDS", "5"))
     seed = int(os.environ.get("MOCK_SEED", "753251"))
+    # Keep the scenario cycle reproducible while giving each process a fresh
+    # identity namespace, including after restarts and across concurrent feeds.
+    seed += (uuid.uuid4().int % (10 ** 24)) * 10
     transaction_id = os.environ.get("MOCK_TRANSACTION_ID")
+    feed_name = os.environ.get("MOCK_FEED_NAME", "mixed-lifecycle")
     wal = WalWriter(os.environ.get("WAL_PATH", "wal/events.jsonl"))
     publisher = KafkaPublisher(os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092"))
-    print(f"[mock-pipeline] scenario={scenario} one transaction context per lifecycle", flush=True)
+    print(
+        f"[mock-pipeline] feed={feed_name} scenario={scenario} interval={interval}s "
+        "one transaction context per lifecycle",
+        flush=True,
+    )
     try:
         cycle = 0
         while True:

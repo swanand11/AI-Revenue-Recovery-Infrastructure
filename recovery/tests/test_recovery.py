@@ -1,6 +1,6 @@
 from recovery.consumer.validation import validate_candidate
 from recovery.consumer.main import acknowledgement, recovery_followup_events
-from recovery.models.contracts import RecoveryStatus
+from recovery.models.contracts import Belief, Recommendation, RecoveryStatus, utc_now
 from recovery.state.store import MemoryStateStore
 from recovery.coordinator.service import RecoveryCoordinator
 
@@ -46,6 +46,21 @@ def test_replayed_older_event_does_not_increment_state_version():
 
 def test_validation_reports_missing_fields():
     assert validate_candidate({"transaction_id": "txn_1"}) == "missing_fields=detection_id,event_id,timestamp"
+
+
+def test_checkout_failure_aligns_generic_recovery_votes_to_payment_link():
+    beliefs = [
+        Belief("belief_economics", "economics-agent", "v1", "txn_1", 1, Recommendation.RECOVER, 0.85, "POSITIVE_UNIT_ECONOMICS", utc_now()),
+        Belief("belief_intent", "intent-agent", "v1", "txn_1", 1, Recommendation.DO_NOTHING, 0.8, "STALE_REMOTE_SCORE", utc_now()),
+        Belief("belief_risk", "risk-agent", "v1", "txn_1", 1, Recommendation.RECOVER, 0.9, "RISK_ACCEPTABLE", utc_now()),
+    ]
+
+    aligned = RecoveryCoordinator._align_checkout_link_votes(
+        beliefs,
+        {"stage": "checkout", "signals": {"customer_intent_score": 0.2, "current_median_intent": 0.8}},
+    )
+
+    assert all(belief.recommendation is Recommendation.SEND_PAYMENT_LINK for belief in aligned)
 
 
 def recovery_candidate(event_id="evt_1", **overrides):

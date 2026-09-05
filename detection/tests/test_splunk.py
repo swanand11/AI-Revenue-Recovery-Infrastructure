@@ -30,6 +30,18 @@ def test_hec_payload_contains_traceable_detection_fields(monkeypatch):
     assert b'"kafka_topic": "recovery.events"' in captured["payload"]
 
 
+def test_hec_payload_omits_time_when_timestamp_is_missing(monkeypatch):
+    captured = {}
+    def fake_urlopen(request, timeout, context):
+        captured["payload"] = json.loads(request.data.decode("utf-8"))
+        return Response()
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+
+    SplunkHeCAdapter("https://splunk:8088", "token", index="revtrace", verify_cert=False).emit({"event_id": "det_1"})
+
+    assert "time" not in captured["payload"]
+
+
 def test_splunk_failure_isolated_from_detection(monkeypatch):
     monkeypatch.setattr("urllib.request.urlopen", lambda *args, **kwargs: (_ for _ in ()).throw(urllib.error.URLError("offline")))
     monkeypatch.setattr("detection.publisher.splunk.time.sleep", lambda _: None)

@@ -11,7 +11,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from detection.publisher.splunk import SplunkHeCAdapter, default_verify_cert_for_url, parse_bool
 
-TOPIC = "recovery.events"
+TOPICS = [
+    "checkout.events",
+    "payment.events",
+    "authorization.events",
+    "capture.events",
+    "settlement.events",
+    "detection.events",
+    "recovery.events",
+    "recovery.acknowledgements",
+]
 
 
 def main() -> None:
@@ -25,7 +34,7 @@ def main() -> None:
     )
 
     consumer = KafkaConsumer(
-        TOPIC,
+        *TOPICS,
         bootstrap_servers=bootstrap_servers.split(","),
         group_id="splunk-forwarder",
         auto_offset_reset="earliest",
@@ -36,7 +45,7 @@ def main() -> None:
     )
     splunk = SplunkHeCAdapter(hec_url, hec_token, index=index, verify_cert=verify_cert)
 
-    print(f"Splunk forwarder listening on {TOPIC}", flush=True)
+    print(f"Splunk forwarder listening on {', '.join(TOPICS)}", flush=True)
     for message in consumer:
         splunk.emit(message.value, fields={"kafka_topic": message.topic, "event_nature": "detection_output"})
         print(

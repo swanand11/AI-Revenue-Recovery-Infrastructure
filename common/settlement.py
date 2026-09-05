@@ -45,6 +45,7 @@ class SettlementBatch:
     candidate_root_cause: str | None = None
     rca_confidence: float = 0.0
     rca_evidence: list[str] = field(default_factory=list)
+    capture_manifest: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -73,6 +74,11 @@ class SettlementBatcher:
             amount=float(event.get("captured_amount") or event.get("amount") or 0.0),
             currency=event.get("currency", "INR"),
             captured_at=event.get("captured_at") or event["timestamp"],
+            merchant_id=event.get("merchant_id"),
+            customer_id=event.get("customer_id"),
+            order_id=event.get("order_id"),
+            payment_method=(event.get("metadata") or {}).get("payment_method"),
+            provider=(event.get("metadata") or {}).get("provider") or event.get("provider"),
         )
         self.pending.append(captured)
         return captured
@@ -93,6 +99,21 @@ class SettlementBatcher:
             currency=items[0].currency if items else "INR",
             transaction_date=items[0].captured_at[:10] if items and items[0].captured_at else utc_now()[:10],
             transaction_count=len(items),
+            capture_manifest=[
+                {
+                    "transaction_id": item.transaction_id,
+                    "payment_id": item.payment_id,
+                    "customer_id": item.customer_id,
+                    "merchant_id": item.merchant_id,
+                    "order_id": item.order_id,
+                    "provider": item.provider,
+                    "payment_method": item.payment_method,
+                    "captured_amount": item.amount,
+                    "currency": item.currency,
+                    "captured_at": item.captured_at,
+                }
+                for item in items
+            ],
         )
         self.batches[batch_id] = batch
         return batch
@@ -100,7 +121,7 @@ class SettlementBatcher:
     def process_batch(self, batch_id: str, should_succeed: bool) -> SettlementBatch:
         batch = self.batches[batch_id]
         if batch.transaction_count != self.batch_size or len(set(batch.transaction_ids)) != self.batch_size:
-            raise ValueError("settlement batch must contain exactly 100 unique captured transactions")
+            raise ValueError(f"settlement batch must contain exactly {self.batch_size} unique captured transactions")
         batch.status = "succeeded" if should_succeed else "failed"
         batch.processed_at = utc_now()
         batch.settled_amount = batch.total_amount if should_succeed else 0.0
@@ -131,6 +152,7 @@ def settlement_event(batch: SettlementBatch, event_type: str) -> dict[str, Any]:
         "event_type": event_type,
         "batch_id": batch.batch_id,
         "transaction_ids": list(batch.transaction_ids),
+        "capture_manifest": list(batch.capture_manifest),
         "total_amount": batch.total_amount,
         "transaction_date": batch.transaction_date,
         "transaction_count": batch.transaction_count or len(batch.transaction_ids),

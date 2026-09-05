@@ -118,9 +118,10 @@ services:
       - SERVICE_NAME=settlement-service
       - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
       - WAL_PATH=/app/wal/events.jsonl
-      - SETTLEMENT_BATCH_INTERVAL_SECONDS=${SETTLEMENT_BATCH_INTERVAL_SECONDS:-30}
-      - SETTLEMENT_PROCESSING_DELAY_SECONDS=${SETTLEMENT_PROCESSING_DELAY_SECONDS:-3}
-      - SETTLEMENT_OUTCOME_PATTERN=${SETTLEMENT_OUTCOME_PATTERN:-success,failed,success}
+      - SETTLEMENT_BATCH_INTERVAL_SECONDS=${SETTLEMENT_BATCH_INTERVAL_SECONDS:-60}
+      - SETTLEMENT_BATCH_SIZE=${SETTLEMENT_BATCH_SIZE:-100}
+      - SETTLEMENT_PROCESSING_DELAY_SECONDS=${SETTLEMENT_PROCESSING_DELAY_SECONDS:-5}
+      - SETTLEMENT_OUTCOME_PATTERN=${SETTLEMENT_OUTCOME_PATTERN:-random,failed,random}
     volumes:
       - wal_data:/app/wal
     depends_on:
@@ -136,10 +137,32 @@ services:
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       WAL_PATH: /app/wal/events.jsonl
+      MOCK_FEED_NAME: mixed-lifecycle
       MOCK_SCENARIO: ${MOCK_SCENARIO:-live_mix}
       MOCK_SEED: ${MOCK_SEED:-753251}
       MOCK_TRANSACTION_ID: ${MOCK_TRANSACTION_ID:-}
       MOCK_INTERVAL_SECONDS: ${MOCK_INTERVAL_SECONDS:-5}
+    volumes:
+      - wal_data:/app/wal
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  settlement-capture-feed:
+    build:
+      context: .
+      dockerfile: ./runner/Dockerfile
+    command: ["python", "-u", "-m", "runner.mock_pipeline"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      WAL_PATH: /app/wal/events.jsonl
+      MOCK_FEED_NAME: settlement-happy-path
+      MOCK_SCENARIO: full_success
+      # 100 captured transactions arrive within one settlement interval. The
+      # settlement service still creates at most one batch per minute.
+      MOCK_INTERVAL_SECONDS: ${MOCK_SETTLEMENT_INTERVAL_SECONDS:-0.5}
+      MOCK_SEED: ${MOCK_SETTLEMENT_SEED:-910001}
     volumes:
       - wal_data:/app/wal
     depends_on:

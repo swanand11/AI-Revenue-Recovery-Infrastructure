@@ -22,13 +22,17 @@ def _stable_suffix(value: int) -> str:
 
 
 def generate_transaction_context(seed: int | None = None) -> TransactionContext:
-    rng = random.Random(seed if seed is not None else uuid.uuid4().int)
+    identity_seed = seed if seed is not None else uuid.uuid4().int
+    rng = random.Random(identity_seed)
     merchant_id = f"merchant_{rng.randint(1, 999):03d}"
     customer_id = f"customer_{rng.randint(1, 99999):05d}"
-    order_id = f"order_{rng.randint(1, 999999):06d}"
-    transaction_id = f"txn_{rng.randint(1, 999999):06d}"
-    payment_id = f"pay_{rng.randint(1, 999999):06d}"
-    trace_id = f"trace_{transaction_id.split('_')[-1]}"
+    # A mock run advances the seed for every lifecycle. Do not draw identity
+    # IDs from a six-digit random pool: it collides under a continuous feed.
+    identity_suffix = f"{identity_seed:012d}" if isinstance(identity_seed, int) else str(identity_seed)
+    order_id = f"order_{identity_suffix}"
+    transaction_id = f"txn_{identity_suffix}"
+    payment_id = f"pay_{identity_suffix}"
+    trace_id = f"trace_{identity_suffix}"
     return TransactionContext(
         merchant_id=merchant_id,
         customer_id=customer_id,
@@ -40,7 +44,7 @@ def generate_transaction_context(seed: int | None = None) -> TransactionContext:
 
 
 def generate_cycle_transaction_context() -> TransactionContext:
-    cycle_seed = int(time.time_ns() // 1_000_000_000)
+    cycle_seed = time.time_ns()
     return generate_transaction_context(seed=cycle_seed)
 
 

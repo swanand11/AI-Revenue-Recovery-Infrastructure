@@ -17,7 +17,7 @@ async function loadCustomerView() {
       <p class="subtle">Customer ${html(row.customer_id)} was notified for transaction ${html(row.transaction_id)}.</p>
       <div class="portal-steps">
         <span>Notification sent</span>
-        <span>${html(row.payment_link)}</span>
+        <span>Link ${html(row.payment_link)}</span>
         <span>${html(row.customer_action)}</span>
       </div>
       <strong>${html(money(row.amount_recovered))} recovered</strong>

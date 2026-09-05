@@ -71,11 +71,11 @@ function statusBadge(status) {
 
 function settlementTable(rows) {
   if (!rows.length) return '<div class="empty-state">No settlement batches available yet.</div>';
-  const cols = ['Batch', 'Date', 'Transactions', 'Remaining To 100', 'Captured', 'Settled', 'Failed', 'Pending', 'Revenue At Risk', 'Status', 'Action'];
+  const cols = ['Batch', 'Date', 'Transactions', 'Remaining To 100', 'Captured', 'Settled', 'Failed', 'Pending', 'Revenue At Risk', 'Root Cause', 'Status', 'Action'];
   const body = rows.map((row) => {
     const failed = String(row.status || '').toUpperCase() === 'FAILED';
     const action = failed
-      ? `<a class="trail-link" href="/admin/money-trail?batch_id=${encodeURIComponent(row.batch_id)}">Visualize money trail</a>`
+      ? `<div class="settlement-actions"><a class="trail-link" href="/admin/money-trail?batch_id=${encodeURIComponent(row.batch_id)}">Money trail</a><a class="trail-link" href="/admin/settlement/rca">RCA & escalation</a></div>`
       : '<span class="muted">Monitoring</span>';
     return `<tr class="${failed ? 'failed-row' : ''}">
       <td>${html(row.batch_id)}</td>
@@ -87,6 +87,7 @@ function settlementTable(rows) {
       <td>${html(money(row.failed_amount))}</td>
       <td>${html(money(row.pending_amount))}</td>
       <td>${html(money(row.revenue_at_risk))}</td>
+      <td>${html(failed ? (row.candidate_root_cause || row.rca?.failure_code || 'Investigation pending') : '-')}</td>
       <td>${statusBadge(row.status)}</td>
       <td>${action}</td>
     </tr>`;

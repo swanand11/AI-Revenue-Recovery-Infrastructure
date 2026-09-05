@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +23,17 @@ def read_json(name: str, default: Any) -> Any:
 
 
 def write_json(name: str, payload: Any) -> None:
-    _path(name).write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    path = _path(name)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        temporary = Path(handle.name)
+        try:
+            json.dump(payload, handle, separators=(",", ":"))
+            handle.flush()
+            os.fsync(handle.fileno())
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    temporary.replace(path)
 
 
 def append_record(name: str, record: dict[str, Any], limit: int | None = None) -> None:

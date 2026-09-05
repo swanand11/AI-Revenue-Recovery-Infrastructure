@@ -18,6 +18,22 @@ def test_normal_scenario_has_one_context_and_ordered_parent_spans():
     assert [event["metadata"]["lifecycle_sequence"] for event in events] == list(range(len(events)))
 
 
+def test_batch_minute_scenario_is_deterministic_full_success():
+    events = build_scenario_events("batch_minute", seed=753251)
+
+    assert len(events) == 8
+    assert events[-1]["event_type"] == "capture_succeeded"
+    assert events[-1]["status"] == "success"
+
+
+def test_dedicated_settlement_feed_uses_the_normal_capture_lifecycle():
+    events = build_scenario_events("full_success", seed=910001)
+
+    assert events[-1]["event_type"] == "capture_succeeded"
+    assert events[-1]["transaction_status"] == "CAPTURED_FINAL"
+    assert all(event["status"] == "success" for event in events)
+
+
 @pytest.mark.parametrize(
     ("scenario", "last_type", "forbidden_stage"),
     [("authorization_failure", "authorization_failed", "capture"),
@@ -41,6 +57,14 @@ def test_repeated_cycles_use_new_event_ids_but_one_context_per_cycle():
     second = build_scenario_events("normal", seed=2)
     assert {event["transaction_id"] for event in first} != {event["transaction_id"] for event in second}
     assert not ({event["event_id"] for event in first} & {event["event_id"] for event in second})
+
+
+def test_mock_context_ids_remain_unique_across_a_long_continuous_seed_range():
+    contexts = [build_scenario_events("normal", seed=910001 + index)[0] for index in range(10_000)]
+
+    assert len({event["transaction_id"] for event in contexts}) == len(contexts)
+    assert len({event["payment_id"] for event in contexts}) == len(contexts)
+    assert len({event["order_id"] for event in contexts}) == len(contexts)
 
 
 def test_named_transaction_id_is_propagated():

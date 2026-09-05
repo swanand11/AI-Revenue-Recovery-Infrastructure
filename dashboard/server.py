@@ -30,24 +30,32 @@ FAVICON_BYTES = b"""<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
 <circle cx='42' cy='24' r='4' fill='#e8f1ff'/>
 </svg>"""
 
+CLIENT_DISCONNECT_ERRORS = (BrokenPipeError, ConnectionAbortedError, ConnectionResetError)
+
 
 def json_response(handler: BaseHTTPRequestHandler, payload: dict, status: int = 200) -> None:
     body = json.dumps(payload).encode("utf-8")
-    handler.send_response(status)
-    handler.send_header("Content-Type", "application/json")
-    handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Cache-Control", "no-store")
-    handler.end_headers()
-    handler.wfile.write(body)
+    try:
+        handler.send_response(status)
+        handler.send_header("Content-Type", "application/json")
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.end_headers()
+        handler.wfile.write(body)
+    except CLIENT_DISCONNECT_ERRORS:
+        return
 
 
 def text_response(handler: BaseHTTPRequestHandler, body: bytes, content_type: str = "text/html; charset=utf-8") -> None:
-    handler.send_response(200)
-    handler.send_header("Content-Type", content_type)
-    handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Cache-Control", "no-store")
-    handler.end_headers()
-    handler.wfile.write(body)
+    try:
+        handler.send_response(200)
+        handler.send_header("Content-Type", content_type)
+        handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
+        handler.end_headers()
+        handler.wfile.write(body)
+    except CLIENT_DISCONNECT_ERRORS:
+        return
 
 
 def read_local_events(name: str, default: list[dict] | None = None) -> list[dict]:
@@ -160,58 +168,59 @@ def _detection_rows(events: list[dict]) -> list[dict]:
                 "recoverability": "ESCALATED",
                 "source_event_id": event.get("event_id"),
             }
-    return list(by_detection.values())[-100:]
+    return list(by_detection.values())
 
 
 def _recovery_rows(events: list[dict]) -> list[dict]:
     ack_events = [event for event in events if event.get("_topic") == "recovery.acknowledgements"]
-    rows = []
+    by_ack: dict[str, dict] = {}
     for ack in ack_events:
-        rows.append(
-            {
-                "name": "LIVE RECOVERY",
-                "transaction": ack.get("transaction_id"),
-                "transaction_id": ack.get("transaction_id"),
-                "customer_id": ack.get("customer_id"),
-                "failure": ack.get("failure_code"),
-                "intent_score": ack.get("intent_score"),
-                "intent_bucket": ack.get("intent_bucket"),
-                "current_median": ack.get("current_median"),
-                "decision": ack.get("action") or ack.get("status"),
-                "action": ack.get("action"),
-                "recommended_action": ack.get("recommended_action"),
-                "notification_status": ack.get("notification_status"),
-                "payment_link_status": ack.get("payment_link_status"),
-                "recovered": ack.get("recovered"),
-                "link_clicked": ack.get("payment_link_status"),
-                "capture": ack.get("capture_result") or "PENDING",
-                "amount_at_risk": ack.get("amount_at_risk", 0),
-                "amount_recovered": ack.get("amount_recovered", 0),
-                "status": ack.get("status"),
-                "agent_beliefs": ack.get("agent_belief_count", 0),
-                "consensus": ack.get("consensus_decision"),
-                "guardrails": ack.get("policy_reason"),
-                "provider_before": ack.get("provider_before"),
-                "provider_after": ack.get("provider_after"),
-                "retry_number": ack.get("recovery_attempts"),
-                "payment_result": ack.get("payment_result"),
-                "authorization_result": ack.get("authorization_result"),
-                "capture_result": ack.get("capture_result"),
-                "links_sent": ack.get("links_sent", 0),
-                "links_opened": ack.get("links_opened", 0),
-                "payment_attempts": ack.get("payment_attempts", 0),
-                "successful_payments": ack.get("successful_payments", 0),
-                "successful_captures": ack.get("successful_captures", 0),
-                "conversion_rate": ack.get("conversion_rate", 0),
-                "recovery_capture_event_ids": ack.get("recovery_capture_event_ids", []),
-            }
-        )
-    return rows[-100:]
+        key = ack.get("ack_id") or ack.get("event_id") or f"{ack.get('transaction_id')}:{ack.get('state_version')}"
+        by_ack[key] = {
+            "name": "LIVE RECOVERY",
+            "transaction": ack.get("transaction_id"),
+            "transaction_id": ack.get("transaction_id"),
+            "customer_id": ack.get("customer_id"),
+            "failure": ack.get("failure_code"),
+            "intent_score": ack.get("intent_score"),
+            "intent_bucket": ack.get("intent_bucket"),
+            "current_median": ack.get("current_median"),
+            "decision": ack.get("action") or ack.get("status"),
+            "action": ack.get("action"),
+            "recommended_action": ack.get("recommended_action"),
+            "notification_status": ack.get("notification_status"),
+            "payment_link_status": ack.get("payment_link_status"),
+            "recovered": ack.get("recovered"),
+            "link_clicked": ack.get("payment_link_status"),
+            "capture": ack.get("capture_result") or "PENDING",
+            "amount_at_risk": ack.get("amount_at_risk", 0),
+            "amount_recovered": ack.get("amount_recovered", 0),
+            "status": ack.get("status"),
+            "agent_beliefs": ack.get("agent_belief_count", 0),
+            "consensus": ack.get("consensus_decision"),
+            "guardrails": ack.get("policy_reason"),
+            "provider_before": ack.get("provider_before"),
+            "provider_after": ack.get("provider_after"),
+            "retry_number": ack.get("recovery_attempts"),
+            "payment_result": ack.get("payment_result"),
+            "authorization_result": ack.get("authorization_result"),
+            "capture_result": ack.get("capture_result"),
+            "links_sent": ack.get("links_sent", 0),
+            "links_opened": ack.get("links_opened", 0),
+            "payment_attempts": ack.get("payment_attempts", 0),
+            "successful_payments": ack.get("successful_payments", 0),
+            "successful_captures": ack.get("successful_captures", 0),
+            "conversion_rate": ack.get("conversion_rate", 0),
+            "recovery_capture_event_ids": ack.get("recovery_capture_event_ids", []),
+            "timestamp": ack.get("timestamp"),
+        }
+    return list(by_ack.values())
 
 
 def _settlement_rows(events: list[dict]) -> list[dict]:
     by_batch: dict[str, dict] = {}
     assigned_transaction_ids: set[str] = set()
+    completed_transaction_ids: set[str] = set()
     for event in events:
         if event.get("_topic") != "settlement.events":
             continue
@@ -221,10 +230,22 @@ def _settlement_rows(events: list[dict]) -> list[dict]:
         total = float(event.get("gross_captured_amount") or event.get("total_amount") or 0)
         batch_status = str(event.get("batch_status") or event.get("status", "")).upper()
         failed = float(event.get("failed_amount") or event.get("settlement_at_risk") or 0)
+        transaction_ids = event.get("transaction_ids") or []
+        previous = by_batch.get(event.get("batch_id"))
+        # Settlement lifecycle events can arrive from separate Kafka partitions.
+        # A delayed READY/PROCESSING event must never replace a terminal result.
+        if previous and previous.get("status") in {"SUCCEEDED", "FAILED"} and batch_status not in {"SUCCEEDED", "FAILED"}:
+            continue
+        if batch_status in {"SUCCEEDED", "FAILED"} and completed_transaction_ids.intersection(transaction_ids):
+            continue
         by_batch[event.get("batch_id")] = (
             {
                 "batch_id": event.get("batch_id"),
-                "transaction_ids": event.get("transaction_ids") or [],
+                "timestamp": event.get("timestamp"),
+                "created_at": event.get("created_at"),
+                "processed_at": event.get("processed_at"),
+                "transaction_ids": transaction_ids,
+                "capture_manifest": event.get("capture_manifest") or [],
                 "batch_date": event.get("transaction_date"),
                 "transaction_date": event.get("transaction_date"),
                 "transactions": event.get("transaction_count") or len(event.get("transaction_ids") or []),
@@ -249,18 +270,21 @@ def _settlement_rows(events: list[dict]) -> list[dict]:
                 "complaint": event.get("complaint"),
             }
         )
-    rows = list(by_batch.values())[-100:]
+        if batch_status in {"SUCCEEDED", "FAILED"}:
+            completed_transaction_ids.update(transaction_ids)
+    rows = sorted(by_batch.values(), key=lambda row: row["batch_id"])
     pending_captures = _pending_settlement_captures(events, assigned_transaction_ids)
-    if pending_captures:
-        visible_pending = pending_captures[:100]
+    for start in range(0, len(pending_captures) + 1, 100):
+        visible_pending = pending_captures[start:start + 100]
+        first_pending = visible_pending[0] if visible_pending else {}
         pending_amount = sum(float(event.get("captured_amount") or event.get("amount") or 0) for event in visible_pending)
         collecting_status = "READY" if len(visible_pending) >= 100 else "COLLECTING"
         rows.append(
             {
-                "batch_id": f"collecting_batch_{len(by_batch) + 1:03d}",
+                "batch_id": f"collecting_batch_{max([int(key.split('_')[1]) for key in by_batch] or [0]) + 1 + start // 100:03d}",
                 "transaction_ids": [event["transaction_id"] for event in visible_pending],
-                "batch_date": visible_pending[0].get("captured_at", visible_pending[0].get("timestamp", ""))[:10],
-                "transaction_date": visible_pending[0].get("captured_at", visible_pending[0].get("timestamp", ""))[:10],
+                "batch_date": first_pending.get("captured_at", first_pending.get("timestamp", ""))[:10],
+                "transaction_date": first_pending.get("captured_at", first_pending.get("timestamp", ""))[:10],
                 "transactions": len(visible_pending),
                 "transaction_count": len(visible_pending),
                 "failed_transactions": 0,
@@ -418,9 +442,14 @@ def _money_trails(events: list[dict], settlement_rows: list[dict]) -> list[dict]
     trails = []
     for batch in settlement_rows:
         transaction_ids = batch.get("transaction_ids") or []
+        manifest_by_transaction = {
+            item.get("transaction_id"): item
+            for item in batch.get("capture_manifest") or []
+            if item.get("transaction_id")
+        }
         mapped = []
         for transaction_id in transaction_ids[:40]:
-            capture = captures.get(transaction_id, {})
+            capture = captures.get(transaction_id) or manifest_by_transaction.get(transaction_id, {})
             metadata = capture.get("metadata") or {}
             mapped.append(
                 {
@@ -518,8 +547,10 @@ def _merchant_view(settlement_rows: list[dict], escalations: list[dict], money_t
 
 def _overview(events: list[dict], detections: list[dict], recovery: list[dict], settlement: list[dict], escalations: list[dict]) -> dict:
     transactions = {event.get("transaction_id") for event in events if event.get("transaction_id")}
-    failures = [event for event in events if event.get("status") == "failure" and event.get("stage") != "settlement"]
-    captured = [event for event in events if event.get("event_type") == "capture_succeeded" and event.get("status") == "success"]
+    failures = list({event.get("event_id") or str(index): event for index, event in enumerate(events)
+        if event.get("status") == "failure" and event.get("stage") != "settlement"
+        and event.get("_topic") not in {"detection.events", "recovery.events", "recovery.acknowledgements"}}.values())
+    captured = list(_capture_index(events).values())
     amount_captured = sum(float(event.get("captured_amount") or event.get("amount") or 0) for event in captured)
     amount_recovered = sum(float(row.get("amount_recovered") or 0) for row in recovery)
     amount_settled = sum(float(row.get("settled_amount") or 0) for row in settlement if row.get("status") == "SUCCEEDED")
@@ -686,11 +717,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     return json_response(self, {"error": str(e)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
             json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+        except CLIENT_DISCONNECT_ERRORS:
+            return
         except Exception as exc:  # pragma: no cover - runtime integration
             json_response(self, {"error": str(exc)}, status=HTTPStatus.INTERNAL_SERVER_ERROR)
 
     def do_POST(self) -> None:  # noqa: N802
-        return json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+        try:
+            return json_response(self, {"error": "not_found"}, status=HTTPStatus.NOT_FOUND)
+        except CLIENT_DISCONNECT_ERRORS:
+            return
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return None

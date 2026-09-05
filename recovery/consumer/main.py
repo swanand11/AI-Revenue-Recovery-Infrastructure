@@ -28,13 +28,12 @@ def _stable_percent(*parts: str) -> int:
 
 
 def _recovery_context(event: dict[str, Any], action: dict[str, Any]) -> TransactionContext:
-    payment_id = f"{event['payment_id']}_r{action.get('state_version', 1)}"
     return TransactionContext(
         merchant_id=event.get("merchant_id") or "",
         customer_id=event.get("customer_id") or "",
         order_id=event.get("order_id") or "",
         transaction_id=event["transaction_id"],
-        payment_id=payment_id,
+        payment_id=event["payment_id"],
         trace_id=event.get("trace_id") or f"trace_{event['transaction_id']}",
     )
 
@@ -150,6 +149,7 @@ def acknowledgement(event: dict[str, Any], state: Any, duplicate: bool, followup
     payment_successes = [item for item in followups if item.get("event_type") == "payment_succeeded"]
     recovered_amount = sum(float(item.get("captured_amount") or item.get("amount") or 0.0) for item in capture_events)
     recovered = bool(capture_events)
+    link_sent = action.get("action") == "SEND_PAYMENT_LINK" and action.get("execution_status") == "SUCCESS" and not duplicate
     return {
         "ack_id": f"ack_{event['event_id']}",
         "event_type": "recovery_candidate_acknowledged",
@@ -184,9 +184,9 @@ def acknowledgement(event: dict[str, Any], state: Any, duplicate: bool, followup
         "payment_result": "success" if payment_successes else ("failure" if payment_attempts else None),
         "authorization_result": "success" if any(item.get("event_type") == "authorization_succeeded" for item in followups) else None,
         "capture_result": "success" if capture_events else None,
-        "notification_status": "SENT" if action.get("action") == "SEND_PAYMENT_LINK" else "N/A",
+        "notification_status": "SENT" if link_sent else ("NOT_SENT" if action.get("action") == "SEND_PAYMENT_LINK" else "N/A"),
         "payment_link_status": "CLICKED" if link_events else ("NOT_OPENED" if action.get("action") == "SEND_PAYMENT_LINK" else "N/A"),
-        "links_sent": 1 if action.get("action") == "SEND_PAYMENT_LINK" else 0,
+        "links_sent": int(link_sent),
         "links_opened": len(link_events),
         "payment_attempts": len(payment_attempts),
         "successful_payments": len(payment_successes),
@@ -252,6 +252,9 @@ def run() -> None:
                         print(f"[recovery-service] rejected event error={error}", flush=True)
                         continue
                     state, changed, beliefs = coordinator.receive_candidate(event)
+                    if not changed:
+                        print(f"[recovery-service] skipped duplicate event_id={event['event_id']}", flush=True)
+                        continue
                     store.save_beliefs(state.transaction_id, beliefs)
                     followups = recovery_followup_events(event, state)
                     for followup in followups:
